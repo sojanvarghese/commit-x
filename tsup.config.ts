@@ -13,7 +13,7 @@ export default defineConfig({
   treeshake: true,
   external: [
     // Keep these as external dependencies
-    '@google/generative-ai',
+    '@google/genai',
     'chalk',
     'commander',
     'inquirer',

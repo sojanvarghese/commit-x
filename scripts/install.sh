@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Commitron Installation Script
+# Commit-X Installation Script
 set -e
 
-echo "🚀 Installing Commitron - AI-Powered Git Commit Assistant"
+echo "🚀 Installing Commit-X - AI-Powered Git Commit Assistant"
 echo "=================================================="
 
 # Check if Node.js is installed
@@ -49,14 +49,14 @@ chmod +x dist/cli.js
 
 # Optionally link globally
 echo ""
-read -p "🌍 Link Commitron globally? This allows you to use 'commitron' from anywhere (y/N): " -n 1 -r
+read -p "🌍 Link Commit-X globally? This allows you to use 'commit-x' from anywhere (y/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     yarn global add file:.
-    echo "✅ Commitron linked globally with Yarn"
-    echo "   You can now use: commitron or cx"
+    echo "✅ Commit-X linked globally with Yarn"
+    echo "   You can now use: commit-x or cx"
 else
-    echo "ℹ️  To use Commitron, run: yarn cx or node dist/cli.js"
+    echo "ℹ️  To use Commit-X, run: yarn cx or node dist/cli.js"
 fi
 
 # Check for API key

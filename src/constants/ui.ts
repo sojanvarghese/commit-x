@@ -43,66 +43,6 @@ export const UI_CONSTANTS = {
   },
 } as const;
 
-export const FILE_PATTERNS = {
-  // Lock files
-  LOCK_FILES: [
-    'yarn.lock',
-    'package-lock.json',
-    'pnpm-lock.yaml',
-    'composer.lock',
-    'Gemfile.lock',
-    'Podfile.lock',
-    'go.sum',
-    'Cargo.lock',
-    'Pipfile.lock',
-  ],
-
-  // Generated files
-  GENERATED_FILES: ['.generated.', '.auto.', '.min.', '.bundle.', '.chunk.'],
-
-  // Build directories
-  BUILD_DIRECTORIES: [
-    '/dist/',
-    '/build/',
-    '/.next/',
-    '/coverage/',
-    '/out/',
-    '/target/',
-    '/node_modules/',
-    '/vendor/',
-    '/.nuxt/',
-    '/.vuepress/',
-    '/.docusaurus/',
-  ],
-
-  // Package files
-  PACKAGE_FILES: [
-    'package.json',
-    'composer.json',
-    'Gemfile',
-    'Podfile',
-    'go.mod',
-    'Cargo.toml',
-    'Pipfile',
-    'build.gradle',
-    'pom.xml',
-    'requirements.txt',
-    'pyproject.toml',
-  ],
-
-  // Documentation files
-  DOCUMENTATION_FILES: ['changelog', 'history', 'release-notes'],
-
-  // Log and temporary files
-  LOG_FILES: ['.log', '/logs/', '.cache', '.tmp', '.temp'],
-
-  // Source maps and bundled files
-  BUNDLED_FILES: ['.map', '.bundle', '.chunk', '.vendor'],
-
-  // File extensions for specific handling
-  STYLE_EXTENSIONS: ['css', 'scss', 'less'],
-  DOCUMENTATION_EXTENSIONS: ['md', 'txt', 'rst'],
-} as const;
 
 export const COMMIT_MESSAGE_PATTERNS = {
   // Conventional commit prefixes to avoid

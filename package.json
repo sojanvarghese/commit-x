@@ -1,6 +1,6 @@
 {
-  "name": "commitron",
-  "version": "1.0.1",
+  "name": "@sojanvarghese/commit-x",
+  "version": "1.1.0",
   "description": "AI-powered Git commit assistant that intelligently analyzes your code changes and generates clear, concise, and context-aware commit messages",
   "keywords": [
     "git",
@@ -11,13 +11,13 @@
     "typescript",
     "automation"
   ],
-  "homepage": "https://github.com/sojanvarghese/commitron#readme",
+  "homepage": "https://github.com/sojanvarghese/commit-x#readme",
   "bugs": {
-    "url": "https://github.com/sojanvarghese/commitron/issues"
+    "url": "https://github.com/sojanvarghese/commit-x/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sojanvarghese/commitron.git"
+    "url": "git+https://github.com/sojanvarghese/commit-x.git"
   },
   "license": "MIT",
   "author": "Sojan Varghese (https://github.com/sojanvarghese)",
@@ -53,17 +53,16 @@
     "config:reset": "yarn cx config reset",
     "setup": "yarn cx setup",
     "help": "yarn cx help-examples",
-    "uninstall": "npm uninstall -g commitron"
+    "uninstall": "npm uninstall -g commit-x"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
+    "@google/genai": "^1.20.0",
     "chalk": "^5.6.2",
     "commander": "^14.0.1",
     "inquirer": "^12.9.6",
     "ora": "^9.0.0",
     "simple-git": "^3.28.0",
     "ts-pattern": "^5.8.0",
-    "tsup": "^8.5.0",
     "type-fest": "^5.0.0",
     "zod": "^4.1.9"
   },
@@ -80,6 +79,7 @@
     "lint-staged": "16.1.6",
     "prettier": "3.6.2",
     "ts-node": "10.9.2",
+    "tsup": "^8.5.0",
     "typescript": "5.9.2"
   },
   "engines": {

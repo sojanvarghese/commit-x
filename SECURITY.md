@@ -76,9 +76,9 @@ Commitron implements comprehensive security measures to protect user data and pr
 ```typescript
 const DEFAULT_LIMITS: ResourceLimits = {
   maxFileSize: 25 * 1024 * 1024, // 25MB
-  maxDiffSize: 100000, // 100KB
-  maxApiRequestSize: 750000, // 750KB
-  timeoutMs: 25000, // 25 seconds (base timeout, actual timeouts are calculated dynamically)
+  maxDiffSize: 100_000, // 100KB
+  maxApiRequestSize: 750_000, // 750KB
+  timeoutMs: 25_000, // 25 seconds (base timeout, actual timeouts are calculated dynamically)
 };
 ```
 
@@ -96,7 +96,7 @@ const DEFAULT_LIMITS: ResourceLimits = {
 
 ## Privacy Command
 
-Use `yarn cx privacy` to view detailed information about:
+Use `cx privacy` to view detailed information about:
 
 - What data is sent to the AI service
 - Privacy protections in place
@@ -156,6 +156,6 @@ This security implementation helps ensure compliance with:
 
 ---
 
-**Last Updated**: December 2024
-**Version**: 1.0.0
+**Last Updated**: September 2025
+**Version**: 1.0.2
 **Status**: ✅ Security features implemented and tested

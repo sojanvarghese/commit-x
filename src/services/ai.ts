@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, type GenerativeModel } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import type { CommitSuggestion, GitDiff } from '../types/common.js';
 import { ConfigManager } from '../config.js';
 import { GitDiffSchema, CommitSuggestionSchema, DiffContentSchema } from '../schemas/validation.js';
@@ -62,12 +62,12 @@ class LRUCache<K, V> {
 }
 
 export class AIService {
-  private readonly genAI: GoogleGenerativeAI;
+  private readonly genAI: GoogleGenAI;
   private readonly config: ConfigManager;
   private readonly errorHandler: ErrorHandler;
   private readonly responseCache = new LRUCache<string, CommitSuggestion[]>(100);
   private readonly batchCache = new LRUCache<string, { [filename: string]: CommitSuggestion[] }>(50);
-  private model: GenerativeModel | null = null; // Cache the model instance
+  private modelName: string | null = null; // Cache the model name
 
   constructor() {
     this.config = ConfigManager.getInstance();
@@ -85,17 +85,15 @@ export class AIService {
     }
 
     // API key is already validated by ConfigManager.getApiKey()
-    this.genAI = new GoogleGenerativeAI(apiKey);
+    this.genAI = new GoogleGenAI({ apiKey });
   }
 
-  private getModel(): GenerativeModel {
-    if (!this.model) {
+  private getModelName(): string {
+    if (!this.modelName) {
       const config = this.config.getConfig();
-      this.model = this.genAI.getGenerativeModel({
-        model: config.model ?? AI_DEFAULT_MODEL,
-      });
+      this.modelName = config.model ?? AI_DEFAULT_MODEL;
     }
-    return this.model;
+    return this.modelName;
   }
 
   // Generate cache key from diffs for deduplication
@@ -169,7 +167,7 @@ export class AIService {
               );
             }
 
-            const model = this.getModel();
+            const modelName = this.getModelName();
 
             const { prompt, sanitizedDiffs } = this.buildJsonPrompt(validatedDiffs);
 
@@ -189,10 +187,13 @@ export class AIService {
               totalChanges
             });
             const result = await withTimeout(
-              model.generateContent(prompt),
+              this.genAI.models.generateContent({
+                model: modelName,
+                contents: prompt
+              }),
               aiTimeout
             );
-            const text = result.response.text();
+            const text = result.text ?? '';
 
             // Use parseBatchResponse for consistency
             const batchResults = this.parseBatchResponse(text, validatedDiffs, sanitizedDiffs);
@@ -281,7 +282,7 @@ export class AIService {
               );
             }
 
-            const model = this.getModel();
+            const modelName = this.getModelName();
 
             const { prompt, sanitizedDiffs } = this.buildJsonPrompt(validatedDiffs);
 
@@ -301,10 +302,13 @@ export class AIService {
               totalChanges
             });
             const result = await withTimeout(
-              model.generateContent(prompt),
+              this.genAI.models.generateContent({
+                model: modelName,
+                contents: prompt
+              }),
               aiTimeout
             );
-            const text = result.response.text();
+            const text = result.text ?? '';
             const batchResults = this.parseBatchResponse(text, validatedDiffs, sanitizedDiffs);
 
             // Cache the batch result

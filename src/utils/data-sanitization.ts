@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as os from 'os';
+import { SENSITIVE_EXTENSIONS, SENSITIVE_JSON_FILES, SENSITIVE_DIRECTORIES } from '../constants/security.js';
 
 // Common patterns that might indicate sensitive information
 const SENSITIVE_PATTERNS = [
@@ -150,10 +151,15 @@ export const shouldSkipFileForAI = (
   content: string
 ): { skip: boolean; reason?: string } => {
   // Skip sensitive file types
-  const sensitiveExtensions = ['.env', '.key', '.pem', '.p12', '.pfx', '.p8', '.json'];
   const ext = path.extname(filePath).toLowerCase();
+  const fileName = path.basename(filePath).toLowerCase();
 
-  if (sensitiveExtensions.includes(ext)) {
+  if (SENSITIVE_EXTENSIONS.includes(ext)) {
+    return { skip: true, reason: 'Sensitive file type' };
+  }
+
+  // Skip specific sensitive JSON files, but allow standard config files
+  if (ext === '.json' && SENSITIVE_JSON_FILES.includes(fileName)) {
     return { skip: true, reason: 'Sensitive file type' };
   }
 
@@ -165,11 +171,10 @@ export const shouldSkipFileForAI = (
   }
 
   // Skip files in sensitive directories
-  const sensitiveDirs = ['secrets', 'keys', 'credentials', 'config', '.env'];
   const pathParts = filePath.toLowerCase().split(path.sep);
 
   for (const part of pathParts) {
-    if (sensitiveDirs.includes(part)) {
+    if (SENSITIVE_DIRECTORIES.includes(part)) {
       return { skip: true, reason: 'Located in sensitive directory' };
     }
   }

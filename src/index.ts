@@ -8,7 +8,7 @@ export const ConfigManager = () => import('./config.js').then(m => m.ConfigManag
 export type * from './types/common.js';
 
 // Performance monitoring
-export { PerformanceMonitor, withPerformanceTracking, logMemoryUsage } from './utils/performance.js';
+export { PerformanceMonitor, withPerformanceTracking } from './utils/performance.js';
 
 // Main entry point for programmatic usage with lazy loading
 const getCommitX = async () => {

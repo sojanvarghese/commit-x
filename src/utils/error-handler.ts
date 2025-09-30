@@ -73,7 +73,9 @@ export class ErrorHandler {
   private static instance: ErrorHandler;
   private errorLog: Array<{ error: SecureError; timestamp: Date }> = [];
 
-  private constructor() {}
+  private constructor() {
+    // Private constructor for singleton pattern
+  }
 
   public static getInstance(): ErrorHandler {
     if (!ErrorHandler.instance) {
@@ -82,7 +84,7 @@ export class ErrorHandler {
     return ErrorHandler.instance;
   }
 
-  public handleError = (error: any, context: ErrorContext = {}): SecureError => {
+  public handleError = (error: unknown, context: ErrorContext = {}): SecureError => {
     let secureError: SecureError;
 
     if (error instanceof SecureError) {
@@ -97,12 +99,12 @@ export class ErrorHandler {
     return secureError;
   };
 
-  private readonly createSecureError = (error: any, context: ErrorContext): SecureError => {
-    const message = error?.message ?? 'Unknown error occurred';
+  private readonly createSecureError = (error: unknown, context: ErrorContext): SecureError => {
+    const message = (error as Error)?.message ?? 'Unknown error occurred';
     const sanitizedMessage = sanitizeError(message);
 
     // Use pattern matching for error type detection
-    const errorType = match(error?.code)
+    const errorType = match((error as { code?: string })?.code)
       .with('ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'EISDIR', () => ErrorType.FILE_SYSTEM_ERROR)
       .with('ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', () => ErrorType.NETWORK_ERROR)
       .otherwise(() => this.detectErrorTypeFromMessage(message));
@@ -195,9 +197,6 @@ export class ErrorHandler {
     };
   };
 
-  public clearErrorLog = (): void => {
-    this.errorLog = [];
-  };
 
   public handleProcessExit = (code: number = 1): void => {
     if (this.errorLog.length > 0) {
@@ -247,7 +246,7 @@ export const withRetry = async <T>(
   context: ErrorContext = {}
 ): Promise<T> => {
   const errorHandler = ErrorHandler.getInstance();
-  let lastError: SecureError;
+  let lastError: SecureError | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -269,5 +268,5 @@ export const withRetry = async <T>(
     }
   }
 
-  throw lastError!;
+  throw lastError ?? new Error('Retry failed with unknown error');
 };

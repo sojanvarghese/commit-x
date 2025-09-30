@@ -41,3 +41,11 @@ export const SUSPICIOUS_COMMIT_PATTERNS = [
   /vbscript:/i, // VBScript protocol
   /on\w+\s*=/i, // Event handlers
 ];
+
+// Sensitive file patterns for data sanitization
+export const SENSITIVE_EXTENSIONS = ['.env', '.key', '.pem', '.p12', '.pfx', '.p8'];
+export const SENSITIVE_JSON_FILES = ['secrets.json', 'credentials.json', 'config.json'];
+export const SENSITIVE_DIRECTORIES = ['secrets', 'keys', 'credentials', 'config', '.env'];
+
+// Build directory patterns
+export const BUILD_DIR_PATTERNS = ['/build/', '/dist/', '/out/', '/target/'];

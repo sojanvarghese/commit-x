@@ -1,33 +1,32 @@
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![version](https://img.shields.io/npm/v/commitron.svg)](https://www.npmjs.com/package/commitron)
-[![downloads](https://img.shields.io/npm/dm/commitron.svg)](https://www.npmjs.com/package/commitron)
-[![Node.js](https://img.shields.io/node/v/commitron.svg)](https://nodejs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-
+[![License](https://badgen.net/badge/license/MIT/blue)](https://opensource.org/licenses/MIT)
+[![NPM Version](https://badgen.net/npm/v/@sojanvarghese/commit-x)](https://www.npmjs.com/package/@sojanvarghese/commit-x)
+[![NPM Downloads](https://badgen.net/npm/dw/@sojanvarghese/commit-x)](https://www.npmjs.com/package/@sojanvarghese/commit-x)
+[![Node.js](https://badgen.net/badge/node/20.0.0+/green)](https://nodejs.org/)
+[![TypeScript](https://badgen.net/badge/TypeScript/5.9.2/blue)](https://www.typescriptlang.org/)
+[![Yarn](https://badgen.net/badge/yarn/4.9.4+/blue)](https://yarnpkg.com/)
+[![AI](https://badgen.net/badge/AI/Gemini/4285F4)](https://ai.google.dev/)
+[![CLI](https://badgen.net/badge/CLI/Tool/green)](https://en.wikipedia.org/wiki/Command-line_interface)
 
 > AI-powered Git commit assistant that intelligently analyzes your code changes and generates clear, concise, and context-aware commit messages using Google's Gemini AI.
 
 ## ✨ Features
 
-- 🤖 **Smart Analysis** - Automatically understands code changes and generates contextual commit messages
-- 📝 **Multiple Workflows** - Batch processing for optimal performance or traditional commits
-- 🎯 **Intelligent Fallbacks** - Summary messages for large files, lock files, and build artifacts
-- 🔧 **Interactive Mode** - Choose from AI-generated suggestions or write custom messages
-- 🔒 **Security-First** - Path validation, input sanitization, and secure API key handling
-- ⚡ **Fast & Reliable** - Optimized performance with retry logic and error recovery
+- **Smart Analysis** - Automatically understands code changes and generates contextual commit messages
+- **Intelligent Fallbacks** - Summary messages for large files, lock files, and build artifacts
+- **Security-First** - Path validation, input sanitization, and secure API key handling
+- **Fast & Reliable** - Optimized performance with retry logic and error recovery
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Node.js 20.0.0+
-- Git repository
-- [Gemini AI API key](https://makersuite.google.com/app/apikey)
+- [Gemini AI API key](https://aistudio.google.com/app/apikey)
 
 ### Installation
 
 ```bash
 # Install globally from npm
-npm install -g commitron
+npm install -g @sojanvarghese/commit-x
 ```
 
 ### Setup
@@ -38,13 +37,6 @@ cx setup
 
 # Or set API key directly
 export GEMINI_API_KEY="your_api_key_here"
-```
-
-### Uninstall
-
-```bash
-# Remove the package
-npm uninstall -g commitron
 ```
 
 ### Usage
@@ -74,17 +66,9 @@ cx commit --dry-run
 | `cx config set <key> <value>` | Set configuration value |
 | `cx config reset` | Reset configuration to defaults |
 | `cx setup` | Interactive setup |
-| `cx privacy` | Show privacy information |
+| `cx privacy` | Show privacy settings and data handling information |
 | `cx debug` | Debug repository detection |
 | `cx help-examples` | Show usage examples |
-
-### Command Options
-
-#### Commit Command Options
-- `--all` - Stage all files and commit together (traditional workflow)
-- `--dry-run` - Show what would be committed without actually committing
-- `--interactive` - Use interactive mode (for traditional workflow only)
-- `-m, --message <message>` - Use provided commit message instead of generating one
 
 ## ⚙️ Configuration
 
@@ -105,11 +89,6 @@ cx config reset
 |--------|------|---------|-------------|
 | `apiKey` | string | - | Gemini AI API key (use environment variable) |
 | `model` | string | `gemini-2.0-flash-lite` | AI model to use |
-
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 

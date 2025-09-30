@@ -8,12 +8,14 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import process from 'process';
+import chalk from 'chalk';
 import { ConfigManager } from './config.js';
 import type { CommitConfig } from './types/common.js';
 import { CommitMessageSchema, CommitConfigSchema } from './schemas/validation.js';
 import { ErrorType } from './types/error-handler.js';
 import { withErrorHandling, SecureError } from './utils/error-handler.js';
 import { PerformanceMonitor, withPerformanceTracking } from './utils/performance.js';
+import { handleErrorImmediate } from './utils/process-utils.js';
 import { PERFORMANCE_FLAGS } from './constants/performance.js';
 
 // Log startup time
@@ -26,21 +28,19 @@ if (PERFORMANCE_FLAGS.ENABLE_PERFORMANCE_MONITORING) {
   });
 }
 
-let chalkCache: any = null;
-let inquirerCache: any = null;
-let gradientStringCache: any = null;
+// Type definitions for dynamic imports
+type InquirerModule = typeof import('inquirer');
+type GradientStringModule = typeof import('gradient-string');
 
-const loadChalk = async (): Promise<any> => {
-  chalkCache ??= (await import('chalk')).default;
-  return chalkCache;
-};
+let inquirerCache: InquirerModule | null = null;
+let gradientStringCache: GradientStringModule | null = null;
 
-const loadInquirer = async (): Promise<any> => {
+const loadInquirer = async (): Promise<InquirerModule> => {
   inquirerCache ??= await import('inquirer');
   return inquirerCache;
 };
 
-const loadGradientString = async (): Promise<any> => {
+const loadGradientString = async (): Promise<GradientStringModule> => {
   gradientStringCache ??= await import('gradient-string');
   return gradientStringCache;
 };
@@ -95,13 +95,12 @@ program
         async (): Promise<void> => {
           // Validate command combinations
           if (options.interactive && !options.all) {
-            const chalk = await loadChalk();
             console.error(chalk.red('❌ Error: --interactive option can only be used with --all flag'));
-            console.log(chalk.yellow('\n💡 Correct usage:'));
-            console.log(chalk.blue('  cx commit --all --interactive    # Interactive traditional workflow'));
-            console.log(chalk.blue('  cx commit --all                  # Non-interactive traditional workflow'));
-            console.log(chalk.blue('  cx commit                        # Batch processing (default)'));
-            console.log(chalk.blue('  cx commit --help                 # Show all options'));
+            console.log(`${chalk.yellow('\n💡 Correct usage:')}
+${chalk.blue('  cx commit --all --interactive    # Interactive traditional workflow')}
+${chalk.blue('  cx commit --all                  # Non-interactive traditional workflow')}
+${chalk.blue('  cx commit                        # Batch processing (default)')}
+${chalk.blue('  cx commit --help                 # Show all options')}`);
             process.exit(1);
           }
 
@@ -199,7 +198,6 @@ configCmd
         const parsedValue = parseConfigValue(value);
 
         await config.set(key as keyof CommitConfig, parsedValue);
-        const chalk = await loadChalk();
         console.log(chalk.green(`✅ Set ${key} = ${parsedValue}`));
       },
       { operation: 'configSet', key }
@@ -232,7 +230,6 @@ configCmd
         } else {
           const allConfig = config.getConfig();
           const apiKey = config.getApiKey();
-          const chalk = await loadChalk();
 
           console.log(chalk.blue('Current configuration:'));
           for (const [k, v] of Object.entries(allConfig)) {
@@ -255,7 +252,7 @@ configCmd
   .description('Reset configuration to defaults')
   .action(async () => {
     try {
-      const [inquirer, chalk] = await Promise.all([loadInquirer(), loadChalk()]);
+      const inquirer = await loadInquirer();
       const { confirm } = await inquirer.prompt([
         {
           type: 'confirm',
@@ -273,9 +270,7 @@ configCmd
         console.log(chalk.yellow('Reset cancelled'));
       }
     } catch (error) {
-      const chalk = await loadChalk();
-      console.error(chalk.red(`Error: ${error}`));
-      process.exit(1);
+      handleErrorImmediate(error);
     }
   });
 
@@ -284,7 +279,7 @@ program
   .command('setup')
   .description('Interactive setup for first-time users')
   .action(async () => {
-    const [inquirer, chalk] = await Promise.all([loadInquirer(), loadChalk()]);
+    const inquirer = await loadInquirer();
     console.log(chalk.blue('🚀 Welcome to Commitron Setup!\n'));
 
     try {
@@ -306,12 +301,11 @@ program
 
       await config.saveConfig(answers);
 
-      console.log(chalk.green('\n✅ Setup completed successfully!'));
-      console.log(chalk.blue('You can now use "cx" to start making AI-powered commits.'));
-      console.log(chalk.gray('Use "cx config" to modify settings later.'));
+      console.log(`${chalk.green('\n✅ Setup completed successfully!')}
+${chalk.blue('You can now use "cx" to start making AI-powered commits.')}
+${chalk.gray('Use "cx config" to modify settings later.')}`);
     } catch (error) {
-      console.error(chalk.red(`Setup failed: ${error}`));
-      process.exit(1);
+      handleErrorImmediate(error, 'Setup failed');
     }
   });
 
@@ -320,42 +314,40 @@ program
   .command('privacy')
   .description('Show privacy settings and data handling information')
   .action(async (): Promise<void> => {
-    const chalk = await loadChalk();
-    console.log(chalk.blue('🔒 Commitron Privacy Information:\n'));
+    console.log(`${chalk.blue('🔒 Commitron Privacy Information:\n')}
 
-    console.log(chalk.yellow('Data Sent to AI:'));
-    console.log('  • File paths (sanitized to remove usernames)');
-    console.log('  • Code changes (up to 3000 characters per file)');
-    console.log('  • File metadata (additions/deletions counts)');
-    console.log('  • File status (new/modified/deleted/renamed)\n');
-    console.log(chalk.yellow('Data NOT Sent to AI:'));
-    console.log('  • API keys or authentication tokens');
-    console.log('  • Personal information (names, emails)');
-    console.log('  • System information (OS, hardware)');
-    console.log('  • Repository metadata (URLs, branch names)\n');
+${chalk.yellow('Data Sent to AI:')}
+  • File paths (sanitized to remove usernames)
+  • Code changes (up to 3000 characters per file)
+  • File metadata (additions/deletions counts)
+  • File status (new/modified/deleted/renamed)
 
-    console.log(chalk.yellow('Privacy Protections:'));
-    console.log('  • Sensitive files are automatically skipped');
-    console.log('  • File paths are sanitized to remove usernames');
-    console.log('  • Potential secrets are redacted from content');
-    console.log('  • Content is limited to 3000 characters per file');
-    console.log('  • Total request size is capped at 100KB\n');
+${chalk.yellow('Data NOT Sent to AI:')}
+  • API keys or authentication tokens
+  • Personal information (names, emails)
+  • System information (OS, hardware)
+  • Repository metadata (URLs, branch names)
 
-    console.log(chalk.yellow('Sensitive File Types (Auto-skipped):'));
-    console.log('  • .env, .key, .pem, .p12, .pfx, .p8 files');
-    console.log('  • Files in secrets/, keys/, credentials/ directories');
-    console.log('  • Files containing API keys, passwords, or tokens\n');
+${chalk.yellow('Privacy Protections:')}
+  • Sensitive files are automatically skipped
+  • File paths are sanitized to remove usernames
+  • Potential secrets are redacted from content
+  • Content is limited to 3000 characters per file
+  • Total request size is capped at 100KB
 
-    console.log(chalk.yellow('Common Warning Types:'));
-    console.log('  • Potential sensitive data detected');
-    console.log('  • Sensitive file pattern detected');
-    console.log('  • Potential secrets detected in comments');
-    console.log('  • Sensitive file type');
-    console.log('  • Located in sensitive directory\n');
+${chalk.yellow('Sensitive File Types (Auto-skipped):')}
+  • .env, .key, .pem, .p12, .pfx, .p8 files
+  • Files in secrets/, keys/, credentials/ directories
+  • Files containing API keys, passwords, or tokens
 
-    console.log(
-      chalk.gray('For more information, visit: https://github.com/sojanvarghese/commitx#privacy')
-    );
+${chalk.yellow('Common Warning Types:')}
+  • Potential sensitive data detected
+  • Sensitive file pattern detected
+  • Potential secrets detected in comments
+  • Sensitive file type
+  • Located in sensitive directory
+
+${chalk.gray('For more information, visit: https://github.com/sojanvarghese/commitx#privacy')}`);
   });
 
 // Help command with examples
@@ -363,31 +355,28 @@ program
   .command('help-examples')
   .description('Show usage examples')
   .action(async (): Promise<void> => {
-    const [chalk, { pastel }] = await Promise.all([loadChalk(), loadGradientString()]);
-    console.log(pastel('📚 Commitron Usage Examples:\n'));
+    const { pastel } = await loadGradientString();
+    console.log(`${pastel('📚 Commitron Usage Examples:\n')}
 
-    console.log(chalk.yellow('Basic usage:'));
-    console.log('  cx                             # Process files with AI');
-    console.log('  cx commit --dry-run            # Preview commits');
-    console.log('  cx commit                      # Direct CLI access');
-    console.log('');
+${chalk.yellow('Basic usage:')}
+  cx                             # Process files with AI
+  cx commit --dry-run            # Preview commits
+  cx commit                      # Direct CLI access
 
-    console.log(chalk.yellow('Traditional workflow:'));
-    console.log('  cx commit --all                # Stage all files and commit together');
-    console.log('  cx commit -m "fix: bug"        # Use custom message (traditional)');
-    console.log('');
+${chalk.yellow('Traditional workflow:')}
+  cx commit --all                # Stage all files and commit together
+  cx commit -m "fix: bug"        # Use custom message (traditional)
 
-    console.log(chalk.yellow('Status and information:'));
-    console.log('  cx status                      # Show repository status');
-    console.log('  cx diff                        # Show changes summary');
-    console.log('');
+${chalk.yellow('Status and information:')}
+  cx status                      # Show repository status
+  cx diff                        # Show changes summary
 
-    console.log(chalk.yellow('Configuration:'));
-    console.log('  cx setup                       # Interactive setup');
-    console.log('  cx config                      # View configuration');
-    console.log('  cx config set <key> <value>    # Set configuration values');
-    console.log('  cx config reset                # Reset configuration');
-    console.log('  cx privacy                     # Show privacy information');
+${chalk.yellow('Configuration:')}
+  cx setup                       # Interactive setup
+  cx config                      # View configuration
+  cx config set <key> <value>    # Set configuration values
+  cx config reset                # Reset configuration
+  cx privacy                     # Show privacy information`);
   });
 
 // Debug command
@@ -395,46 +384,48 @@ program
   .command('debug')
   .description('Debug Git repository detection and environment')
   .action(async (): Promise<void> => {
-    const chalk = await loadChalk();
-    console.log(chalk.blue('\n🔍 Commitron Debug Information:\n'));
+    let debugOutput = `${chalk.blue('\n🔍 Commitron Debug Information:\n')}
 
-    console.log(chalk.gray('Environment:'));
-    console.log(`  Current working directory: ${process.cwd()}`);
-    console.log(`  Node.js version: ${process.version}`);
-    console.log(`  Platform: ${process.platform}`);
-    console.log(`  Architecture: ${process.arch}`);
+${chalk.gray('Environment:')}
+  Current working directory: ${process.cwd()}
+  Node.js version: ${process.version}
+  Platform: ${process.platform}
+  Architecture: ${process.arch}
 
-    console.log(chalk.gray('\nGit repository detection:'));
+${chalk.gray('\nGit repository detection:')}`;
+
     try {
       const { validateGitRepository } = await import('./utils/security.js');
       const validation = await validateGitRepository(process.cwd());
-      console.log(`  Valid Git repository: ${validation.isValid ? '✅ Yes' : '❌ No'}`);
+      debugOutput += `\n  Valid Git repository: ${validation.isValid ? '✅ Yes' : '❌ No'}`;
       if (!validation.isValid) {
-        console.log(`  Error: ${validation.error}`);
+        debugOutput += `\n  Error: ${validation.error}`;
       } else {
-        console.log(`  Repository path: ${validation.sanitizedValue}`);
+        debugOutput += `\n  Repository path: ${validation.sanitizedValue}`;
       }
     } catch (error) {
-      console.log(`  Error during validation: ${error}`);
+      debugOutput += `\n  Error during validation: ${error}`;
     }
 
-    console.log(chalk.gray('\nGit directory structure:'));
+    debugOutput += `\n\n${chalk.gray('Git directory structure:')}`;
     try {
       const fs = await import('fs');
       const path = await import('path');
       const gitDir = path.join(process.cwd(), '.git');
-      console.log(`  .git directory exists: ${fs.existsSync(gitDir) ? '✅ Yes' : '❌ No'}`);
+      debugOutput += `\n  .git directory exists: ${fs.existsSync(gitDir) ? '✅ Yes' : '❌ No'}`;
       if (fs.existsSync(gitDir)) {
         const headFile = path.join(gitDir, 'HEAD');
-        console.log(`  HEAD file exists: ${fs.existsSync(headFile) ? '✅ Yes' : '❌ No'}`);
+        debugOutput += `\n  HEAD file exists: ${fs.existsSync(headFile) ? '✅ Yes' : '❌ No'}`;
         if (fs.existsSync(headFile)) {
           const headContent = fs.readFileSync(headFile, 'utf8');
-          console.log(`  HEAD content: ${headContent.trim()}`);
+          debugOutput += `\n  HEAD content: ${headContent.trim()}`;
         }
       }
     } catch (error) {
-      console.log(`  Error checking Git structure: ${error}`);
+      debugOutput += `\n  Error checking Git structure: ${error}`;
     }
+
+    console.log(debugOutput);
   });
 
 // Default action for commit when no subcommand is provided
@@ -445,32 +436,28 @@ program.action(async (): Promise<void> => {
     const commitX = new CommitX();
     await commitX.commit(); // Uses AI processing by default
   } catch (error) {
-    const chalk = await loadChalk();
-    console.error(chalk.red(`Error: ${error}`));
-    process.exit(1);
+    handleErrorImmediate(error);
   }
 });
 
 // Error handling for unknown commands
 program.on('command:*', async (): Promise<void> => {
-  const chalk = await loadChalk();
   console.error(chalk.red(`❌ Unknown command: ${program.args.join(' ')}`));
-  console.log(chalk.yellow('\n💡 Available commands:'));
-  console.log(chalk.blue('  cx --help              # Show all available commands'));
-  console.log(chalk.blue('  cx commit --help       # Show commit command options'));
-  console.log(chalk.blue('  cx help-examples       # Show usage examples'));
-  console.log(chalk.gray('\nFor more information, visit: https://github.com/sojanvarghese/commitx'));
+  console.log(`${chalk.yellow('\n💡 Available commands:')}
+${chalk.blue('  cx --help              # Show all available commands')}
+${chalk.blue('  cx commit --help       # Show commit command options')}
+${chalk.blue('  cx help-examples       # Show usage examples')}
+${chalk.gray('\nFor more information, visit: https://github.com/sojanvarghese/commitx')}`);
   process.exit(1);
 });
 
 // Error handling for invalid options
 program.on('option:*', async (): Promise<void> => {
-  const chalk = await loadChalk();
   console.error(chalk.red(`❌ Unknown option: ${program.args.join(' ')}`));
-  console.log(chalk.yellow('\n💡 Available options:'));
-  console.log(chalk.blue('  cx --help              # Show all available commands'));
-  console.log(chalk.blue('  cx commit --help       # Show commit command options'));
-  console.log(chalk.gray('\nFor more information, visit: https://github.com/sojanvarghese/commitx'));
+  console.log(`${chalk.yellow('\n💡 Available options:')}
+${chalk.blue('  cx --help              # Show all available commands')}
+${chalk.blue('  cx commit --help       # Show commit command options')}
+${chalk.gray('\nFor more information, visit: https://github.com/sojanvarghese/commitx')}`);
   process.exit(1);
 });
 
@@ -494,9 +481,7 @@ if (process.argv.length === 2) {
         await commitX.commit();
       });
     } catch (error) {
-      const chalk = await loadChalk();
-      console.error(chalk.red(`Error: ${error}`));
-      process.exit(1);
+      handleErrorImmediate(error);
     }
   })();
 } else {

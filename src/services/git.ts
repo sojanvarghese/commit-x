@@ -217,7 +217,7 @@ export class GitService {
             }
 
             throw new SecureError(
-              diffValidation.error!,
+              diffValidation.error ?? 'Validation failed',
               ErrorType.VALIDATION_ERROR,
               { operation: 'getFileDiff', file: validatedFile },
               true
@@ -312,9 +312,7 @@ export class GitService {
     const status = await withTimeout(this.git.status(), calculateGitTimeout({}));
     const unstagedFiles = [...status.modified, ...status.not_added, ...status.deleted];
 
-    if (unstagedFiles.length === 0) {
-      return 'No unstaged changes found.';
-    }
+    if (unstagedFiles.length === 0) return 'No unstaged changes found.';
 
     const diffs: GitDiff[] = [];
     const validatedFiles = this.validateFilePaths(unstagedFiles);
@@ -329,9 +327,7 @@ export class GitService {
       }
     }
 
-    if (diffs.length === 0) {
-      return 'No valid changes found.';
-    }
+    if (diffs.length === 0)  return 'No valid changes found.';
 
     let summary = `Changes summary:\n`;
     summary += `- ${diffs.length} file(s) modified\n`;
@@ -342,11 +338,9 @@ export class GitService {
     summary += `- ${totalAdditions} line(s) added\n`;
     summary += `- ${totalDeletions} line(s) deleted\n\n`;
 
-    summary += `Files:\n`;
-    diffs.forEach((diff) => {
-      const status = this.getFileStatus(diff);
-      summary += `- ${status} ${diff.file} (+${diff.additions}/-${diff.deletions})\n`;
-    });
+    summary += `Files:\n${diffs.map((diff) =>
+    `- ${this.getFileStatus(diff)} ${diff.file} (+${diff.additions}/-${diff.deletions})`
+    ).join('\n')}\n`;
 
     return summary;
   };
@@ -453,11 +447,7 @@ export class GitService {
       }
     }
 
-    const result = {
-      name: repoName,
-      branch: status.current,
-    };
-
+    const result = {   name: repoName,    branch: status.current,};
     // Cache the result for longer since repo info changes less frequently
     this.cache.repoInfo = { data: result, timestamp: Date.now() };
 

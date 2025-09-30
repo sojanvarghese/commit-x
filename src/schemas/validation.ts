@@ -54,26 +54,6 @@ export const CommitSuggestionSchema = z.object({
   confidence: z.number().min(0).max(1).default(0.8),
 });
 
-// Git status schema
-
-// Commit options schema
-export const CommitOptionsSchema = z.object({
-  message: z.string().optional(),
-  dryRun: z.boolean().optional(),
-  interactive: z.boolean().optional(),
-  all: z.boolean().optional(),
-});
-
-// Playwright patterns schema
-export const PlaywrightPatternsSchema = z.object({
-  isPOM: z.boolean(),
-  isSpec: z.boolean(),
-  isFixture: z.boolean(),
-  isConfig: z.boolean(),
-  isUtil: z.boolean(),
-  testType: z.enum(['unit', 'integration', 'e2e', 'unknown']),
-});
-
 // File path validation schema
 export const FilePathSchema = z
   .string()
@@ -159,28 +139,6 @@ export type ValidationResult<T = any> = {
   sanitizedValue?: T;
 };
 
-// Helper function to convert Zod errors to ValidationResult
-export const zodToValidationResult = <T>(
-  result:
-    | { success: true; data: T }
-    | { success: false; error: { issues: Array<{ path: (string | number)[]; message: string }> } }
-): ValidationResult<T> => {
-  if (result.success) {
-    return {
-      isValid: true,
-      sanitizedValue: result.data,
-    };
-  }
-
-  const errorMessage = result.error.issues
-    .map((err: any) => `${err.path.join('.')}: ${err.message}`)
-    .join(', ');
-
-  return {
-    isValid: false,
-    error: errorMessage,
-  };
-};
 
 // Enhanced type utilities using type-fest and utility-types
 export type SafeCommitConfig = SetOptional<CommitConfig, 'apiKey'>;
@@ -196,23 +154,11 @@ export type IsCommitConfigValid<T> = T extends CommitConfig ? true : false;
 export type IsGitDiffValid<T> = T extends GitDiff ? true : false;
 export type IsCommitSuggestionValid<T> = T extends CommitSuggestion ? true : false;
 
-// Pattern matching result types
-export type ErrorTypeResult = ReturnType<typeof getErrorTypeFromCode>;
-export type FileTypeResult = ReturnType<typeof getFileTypeFromExtension>;
-export type CommitTypeResult = ReturnType<typeof getCommitTypeFromMessage>;
-
 // Type-safe configuration validation
 export type ValidatedCommitConfig = z.infer<typeof CommitConfigSchema>;
 export type ValidatedGitDiff = z.infer<typeof GitDiffSchema>;
 export type ValidatedCommitSuggestion = z.infer<typeof CommitSuggestionSchema>;
 
-// Pattern matching utilities for error handling
-export const getErrorTypeFromCode = (code: string) =>
-  match(code)
-    .with('ENOENT', 'EACCES', 'EPERM', () => 'FILE_SYSTEM_ERROR' as const)
-    .with('ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', () => 'NETWORK_ERROR' as const)
-    .with('ENOTDIR', 'EISDIR', () => 'FILE_SYSTEM_ERROR' as const)
-    .otherwise(() => 'UNKNOWN_ERROR' as const);
 
 export const getFileTypeFromExtension = (filename: string) =>
   match(filename.toLowerCase())
@@ -233,38 +179,6 @@ export const getFileTypeFromExtension = (filename: string) =>
     .with('.vue', () => 'vue' as const)
     .with('.svelte', () => 'svelte' as const)
     .otherwise(() => 'unknown' as const);
-
-export const getCommitTypeFromMessage = (message: string) =>
-  match(message.toLowerCase())
-    .when(
-      (msg) => msg.includes('fix') || msg.includes('bug') || msg.includes('error'),
-      () => 'fix' as const
-    )
-    .when(
-      (msg) => msg.includes('feat') || msg.includes('add') || msg.includes('new'),
-      () => 'feature' as const
-    )
-    .when(
-      (msg) => msg.includes('refactor') || msg.includes('restructure'),
-      () => 'refactor' as const
-    )
-    .when(
-      (msg) => msg.includes('test') || msg.includes('spec'),
-      () => 'test' as const
-    )
-    .when(
-      (msg) => msg.includes('doc') || msg.includes('readme'),
-      () => 'docs' as const
-    )
-    .when(
-      (msg) => msg.includes('style') || msg.includes('format'),
-      () => 'style' as const
-    )
-    .when(
-      (msg) => msg.includes('chore') || msg.includes('config'),
-      () => 'chore' as const
-    )
-    .otherwise(() => 'other' as const);
 
 // Type exports for use throughout the application
 export type {
