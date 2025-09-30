@@ -1,0 +1,119 @@
+name: Release Package
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Lint code
+        run: yarn lint
+
+      - name: Build package
+        run: yarn build
+
+      - name: Determine release type
+        id: release-type
+        run: |
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'major') }}" == "true" ]]; then
+            echo "type=major" >> $GITHUB_OUTPUT
+            echo "Release type: major"
+          elif [[ "${{ contains(github.event.pull_request.labels.*.name, 'minor') }}" == "true" ]]; then
+            echo "type=minor" >> $GITHUB_OUTPUT
+            echo "Release type: minor"
+          elif [[ "${{ contains(github.event.pull_request.labels.*.name, 'patch') }}" == "true" ]]; then
+            echo "type=patch" >> $GITHUB_OUTPUT
+            echo "Release type: patch"
+          else
+            echo "No release label found. Skipping release."
+            exit 0
+          fi
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Bump version
+        id: version
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "current-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+          # Update version based on release type
+          yarn version ${{ steps.release-type.outputs.type }} --no-git-tag-version
+
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Commit version bump
+        run: |
+          git add package.json
+          git commit -m "chore(release): bump version to v${{ steps.version.outputs.new-version }}"
+
+      - name: Create Git tag
+        run: |
+          git tag -a "v${{ steps.version.outputs.new-version }}" -m "Release v${{ steps.version.outputs.new-version }}"
+
+      - name: Push changes and tags
+        run: |
+          git push origin main
+          git push origin "v${{ steps.version.outputs.new-version }}"
+
+      - name: Publish to npm
+        run: yarn publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.version.outputs.new-version }}
+          release_name: Release v${{ steps.version.outputs.new-version }}
+          body: |
+            ## Changes in v${{ steps.version.outputs.new-version }}
+
+            This release was automatically created from PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}
+
+            ### Release Type: ${{ steps.release-type.outputs.type }}
+
+            **Full Changelog**: ${{ github.event.pull_request.html_url }}
+          draft: false
+          prerelease: false
+
+  notification:
+    needs: release
+    runs-on: ubuntu-latest
+    if: always() && needs.release.result == 'success'
+
+    steps:
+      - name: Notify success
+        run: |
+          echo "🚀 Successfully released commitron v${{ needs.release.outputs.new-version }}"
+          echo "📦 Package published to npm: https://www.npmjs.com/package/commitron"

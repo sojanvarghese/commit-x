@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Lint code
+        run: yarn lint
+
+      - name: Format check
+        run: yarn format:check
+
+      - name: Build package
+        run: yarn build
+
+      - name: Test CLI
+        run: |
+          node dist/cli.js --help
+          node dist/cli.js --version
+
+  validate-release-labels:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Check release labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const releaseLabels = labels.filter(label =>
+              ['patch', 'minor', 'major'].includes(label.name)
+            );
+
+            if (releaseLabels.length > 1) {
+              core.setFailed(`❌ Multiple release labels found: ${releaseLabels.map(l => l.name).join(', ')}. Please use only one release label.`);
+            } else if (releaseLabels.length === 1) {
+              core.info(`✅ Release label found: ${releaseLabels[0].name}`);
+            } else {
+              core.info(`ℹ️ No release label found. This PR will not trigger a release.`);
+            }
