@@ -1,6 +1,9 @@
 export interface CommitConfig {
   apiKey?: string;
   model?: string;
+  aggregation?: {
+    enabled: boolean;
+  };
 }
 
 export interface GitDiff {
@@ -34,6 +37,7 @@ export interface CommitOptions {
   dryRun?: boolean;
   interactive?: boolean;
   all?: boolean; // Stage all files and commit together (traditional workflow)
+  aggregate?: boolean; // Enable/disable commit aggregation (AI grouping)
 }
 
 export interface PlaywrightPatterns {
@@ -43,4 +47,16 @@ export interface PlaywrightPatterns {
   isConfig: boolean;
   isUtil: boolean;
   testType: 'unit' | 'integration' | 'e2e' | 'unknown';
+}
+
+export interface CommitGroup {
+  files: string[];
+  message: string;
+  description?: string;
+  confidence: number;
+}
+
+export interface AggregatedCommitResponse {
+  groups: CommitGroup[];
+  fallbackToIndividual?: boolean;
 }
