@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import type { CommitSuggestion, GitDiff } from '../types/common.js';
+import type { CommitSuggestion, GitDiff, CommitGroup, AggregatedCommitResponse } from '../types/common.js';
 import { ConfigManager } from '../config.js';
 import { GitDiffSchema, CommitSuggestionSchema, DiffContentSchema } from '../schemas/validation.js';
 import { withTimeout } from '../utils/security.js';
@@ -673,5 +673,322 @@ export class AIService {
     }
 
     return suggestions.slice(0, AI_MAX_SUGGESTIONS);
+  };
+
+  generateAggregatedCommits = async (diffs: GitDiff[]): Promise<AggregatedCommitResponse> => {
+    return withRetry(
+      async () => {
+        return withErrorHandling(
+          async () => {
+            if (!diffs || diffs.length === 0) {
+              throw new SecureError(
+                'No diffs provided for aggregated commits',
+                ErrorType.VALIDATION_ERROR,
+                { operation: 'generateAggregatedCommits' },
+                true
+              );
+            }
+
+            // Check cache first
+            const cacheKey = `aggregated_${this.generateCacheKey(diffs)}`;
+            const cached = this.batchCache.get(cacheKey);
+            if (cached) {
+              return this.convertToAggregatedResponse(cached);
+            }
+
+            // Filter out sensitive files and validate diffs
+            const validatedDiffs: GitDiff[] = [];
+            const skippedFiles: string[] = [];
+
+            for (const diff of diffs) {
+              const skipCheck = shouldSkipFileForAI(diff.file, diff.changes || '');
+              if (skipCheck.skip) {
+                console.warn(`⚠️  Skipping ${diff.file}: ${skipCheck.reason}`);
+                skippedFiles.push(diff.file);
+                continue;
+              }
+
+              const diffResult = GitDiffSchema.safeParse(diff);
+              if (diffResult.success) {
+                const contentResult = DiffContentSchema.safeParse(diff.changes);
+                if (contentResult.success) {
+                  validatedDiffs.push(diffResult.data);
+                } else {
+                  console.warn(`Skipping diff for ${diff.file}: content too large`);
+                }
+              } else {
+                console.warn(`Skipping invalid diff for ${diff.file}:`, diffResult.error.issues);
+              }
+            }
+
+            if (validatedDiffs.length === 0) {
+              return { groups: [], fallbackToIndividual: true };
+            }
+
+            // If only one file, return individual commit
+            if (validatedDiffs.length === 1) {
+              const suggestions = await this.generateCommitMessage(validatedDiffs);
+              return {
+                groups: [{
+                  files: [validatedDiffs[0].file],
+                  message: suggestions[0]?.message || this.generateFallbackMessage(validatedDiffs[0]),
+                  description: suggestions[0]?.description,
+                  confidence: suggestions[0]?.confidence || 0.7
+                }]
+              };
+            }
+
+            const modelName = this.getModelName();
+            const { prompt, sanitizedDiffs } = this.buildAggregatedPrompt(validatedDiffs);
+
+            if (prompt.length > DEFAULT_LIMITS.maxApiRequestSize) {
+              console.warn('Prompt too large for aggregated commits, falling back to individual');
+              return { groups: [], fallbackToIndividual: true };
+            }
+
+            const totalChanges = validatedDiffs.reduce((sum, diff) => sum + diff.additions + diff.deletions, 0);
+            const aiTimeout = calculateAITimeout({
+              diffSize: prompt.length,
+              fileCount: validatedDiffs.length,
+              totalChanges
+            });
+
+            const result = await withTimeout(
+              this.genAI.models.generateContent({
+                model: modelName,
+                contents: prompt
+              }),
+              aiTimeout
+            );
+
+            const text = result.text ?? '';
+            const aggregatedResult = this.parseAggregatedResponse(text, validatedDiffs, sanitizedDiffs);
+
+            // Cache the result
+            this.batchCache.set(cacheKey, this.convertFromAggregatedResponse(aggregatedResult));
+
+            return aggregatedResult;
+          },
+          { operation: 'generateAggregatedCommits' }
+        );
+      },
+      AI_RETRY_ATTEMPTS,
+      AI_RETRY_DELAY_MS,
+      { operation: 'generateAggregatedCommits' }
+    );
+  };
+
+  private readonly buildAggregatedPrompt = (
+    diffs: GitDiff[]
+  ): { prompt: string; sanitizedDiffs: SanitizedDiff[] } => {
+    const sanitizedDiffs = diffs.map((diff) => sanitizeGitDiff(diff, process.cwd()));
+
+    const promptData = {
+      role: 'Expert Git Commit Grouping and Message Generator',
+      task: 'Analyze file changes and intelligently group related modifications into logical commits with appropriate messages.',
+      instructions: [
+        '**Primary Goal:** Group related file changes into logical commits to reduce redundant commit messages while maintaining clarity.',
+        '**Grouping Priorities (in order):**',
+        '1. **Dependency Files**: ALWAYS group package.json, yarn.lock, package-lock.json, pnpm-lock.yaml together',
+        '2. **Similar Changes**: Files with identical or very similar functionality changes (same method added, same parameter made optional, etc.)',
+        '3. **Feature-Related**: Files in same directory/module implementing related functionality',
+        '4. **Cross-cutting Changes**: Import updates, renames, refactoring that affects multiple files',
+        '**Individual Commits for:**',
+        '- Complex changes that deserve separate attention',
+        '- Unrelated modifications that don\'t fit any grouping pattern',
+        '- Files with mixed types of changes (keep focused commits)',
+        '**Message Guidelines:**',
+        '- Group messages: "Updated package to v2.34 and dependencies" or "Made page parameter optional across entities"',
+        '- Individual messages: Follow existing 3-20 word descriptive format',
+        '- Use past tense action verbs (Implemented, Added, Updated, etc.)',
+        '- Be specific about what changed and why',
+        '**Output Format:** JSON with groups array containing files, message, and confidence for each commit group.'
+      ],
+      examples: {
+        good_groupings: [
+          {
+            scenario: 'Dependency update',
+            input_files: ['package.json', 'yarn.lock'],
+            output: {
+              groups: [
+                {
+                  files: ['package.json', 'yarn.lock'],
+                  message: 'Updated axios to v1.5.0 and dependencies',
+                  confidence: 0.95
+                }
+              ]
+            }
+          },
+          {
+            scenario: 'Similar functionality across files',
+            input_files: ['Animal.ts', 'Car.ts', 'House.ts'],
+            output: {
+              groups: [
+                {
+                  files: ['Animal.ts', 'Car.ts', 'House.ts'],
+                  message: 'Made page parameter optional across entity classes',
+                  confidence: 0.9
+                }
+              ]
+            }
+          },
+          {
+            scenario: 'Mixed related and unrelated changes',
+            input_files: ['package.json', 'yarn.lock', 'README.md', 'auth.ts', 'users.ts'],
+            output: {
+              groups: [
+                {
+                  files: ['package.json', 'yarn.lock'],
+                  message: 'Added axios v1.5.0 dependency',
+                  confidence: 0.95
+                },
+                {
+                  files: ['auth.ts', 'users.ts'],
+                  message: 'Implemented user authentication and profile management',
+                  confidence: 0.85
+                },
+                {
+                  files: ['README.md'],
+                  message: 'Updated API documentation',
+                  confidence: 0.8
+                }
+              ]
+            }
+          }
+        ]
+      },
+      input_files: sanitizedDiffs.map((diff, index) => ({
+        id: index + 1,
+        name: diff.file,
+        status: diff.isNew ? 'new file' : diff.isDeleted ? 'deleted' : diff.isRenamed ? 'renamed' : 'modified',
+        changes: diff.changes?.substring(0, 2000) || '', // Shorter for grouping analysis
+        truncated: diff.changes && diff.changes.length > 2000,
+        additions: diff.additions,
+        deletions: diff.deletions,
+        total_changes: diff.additions + diff.deletions
+      })),
+      output_format: {
+        schema: {
+          groups: [
+            {
+              files: ['array of filenames to group together'],
+              message: 'descriptive commit message for the group (3-20 words)',
+              description: 'optional brief explanation of why these files are grouped',
+              confidence: 'number 0-1 indicating confidence in grouping decision'
+            }
+          ]
+        },
+        requirements: [
+          'Each file MUST appear in exactly one group',
+          'Groups should have 1-7 files (prefer smaller logical groups)',
+          'Dependency files (package.json, lock files) MUST be grouped together if present',
+          'Messages must be descriptive and specific to the grouped changes',
+          'Confidence should reflect how certain you are about the grouping logic'
+        ]
+      }
+    };
+
+    const prompt = JSON.stringify(promptData, null, 2);
+    return { prompt, sanitizedDiffs };
+  };
+
+  private readonly parseAggregatedResponse = (
+    response: string,
+    diffs: GitDiff[],
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _sanitizedDiffs: SanitizedDiff[]
+  ): AggregatedCommitResponse => {
+    try {
+      const jsonMatch = response.match(COMMIT_MESSAGE_PATTERNS.JSON_PATTERN);
+      if (!jsonMatch) {
+        console.warn('No JSON found in aggregated response, falling back to individual commits');
+        return { groups: [], fallbackToIndividual: true };
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      if (!parsed.groups || !Array.isArray(parsed.groups)) {
+        console.warn('Invalid groups structure in response, falling back to individual commits');
+        return { groups: [], fallbackToIndividual: true };
+      }
+
+      const groups: CommitGroup[] = [];
+      const usedFiles = new Set<string>();
+
+      // Process each group from AI response
+      for (const group of parsed.groups) {
+        if (!group.files || !Array.isArray(group.files) || !group.message) {
+          console.warn('Skipping invalid group structure:', group);
+          continue;
+        }
+
+        // Validate files exist in original diffs and haven't been used
+        const validFiles = group.files.filter((fileName: string) => {
+          const exists = diffs.some(diff => diff.file === fileName || diff.file.endsWith(`/${fileName}`));
+          const notUsed = !usedFiles.has(fileName);
+          if (exists && notUsed) {
+            usedFiles.add(fileName);
+            return true;
+          }
+          return false;
+        });
+
+        if (validFiles.length > 0) {
+          groups.push({
+            files: validFiles,
+            message: group.message.trim(),
+            description: group.description?.trim(),
+            confidence: typeof group.confidence === 'number' ? group.confidence : 0.7
+          });
+        }
+      }
+
+      // Handle any files not included in groups
+      const unusedFiles = diffs.filter(diff => !usedFiles.has(diff.file));
+      if (unusedFiles.length > 0) {
+        console.warn(`${unusedFiles.length} files not included in AI grouping, adding as individual commits`);
+        for (const diff of unusedFiles) {
+          groups.push({
+            files: [diff.file],
+            message: this.generateFallbackMessage(diff),
+            confidence: 0.6
+          });
+        }
+      }
+
+      return { groups };
+    } catch (error) {
+      console.warn('Failed to parse aggregated response:', error);
+      return { groups: [], fallbackToIndividual: true };
+    }
+  };
+
+  private readonly convertToAggregatedResponse = (
+    batchResult: { [filename: string]: CommitSuggestion[] }
+  ): AggregatedCommitResponse => {
+    const groups = Object.entries(batchResult).map(([file, suggestions]) => ({
+      files: [file],
+      message: suggestions[0]?.message ?? 'Updated file',
+      description: suggestions[0]?.description,
+      confidence: suggestions[0]?.confidence ?? 0.7
+    }));
+    return { groups };
+  };
+
+  private readonly convertFromAggregatedResponse = (
+    response: AggregatedCommitResponse
+  ): { [filename: string]: CommitSuggestion[] } => {
+    const result: { [filename: string]: CommitSuggestion[] } = {};
+    for (const group of response.groups) {
+      const suggestion = {
+        message: group.message,
+        description: group.description ?? '',
+        confidence: group.confidence
+      };
+      for (const file of group.files) {
+        result[file] = [suggestion];
+      }
+    }
+    return result;
   };
 }
