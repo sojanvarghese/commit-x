@@ -14,13 +14,16 @@ import { UI_CONSTANTS } from '../constants/ui.js';
 import { FILE_TYPE_CONFIGS, PATTERNS } from '../constants/commitx.js';
 import { BUILD_DIR_PATTERNS } from '../constants/security.js';
 import { exitProcess, handleError } from '../utils/process-utils.js';
+import { ConfigManager } from '../config.js';
 
 export class CommitX {
   private readonly gitService: GitService;
+  private readonly configManager: ConfigManager;
   private static aiServiceInstance: AIService | null = null;
 
   constructor() {
     this.gitService = new GitService();
+    this.configManager = ConfigManager.getInstance();
   }
 
   private readonly getFileName = (filePath: string): string =>
@@ -118,6 +121,120 @@ ${chalk.white(`"${commitMessage}"`)}`);
   };
 
   private readonly commitFilesBatch = async (
+    files: string[],
+    options: CommitOptions
+  ): Promise<number> => {
+    const config = this.configManager.getConfig();
+    const aggregationEnabled = options.aggregate ?? config.aggregation?.enabled ?? true;
+
+    // Check if we should use aggregated commits
+    if (aggregationEnabled && files.length > 1) {
+      return this.commitFilesAggregated(files, options);
+    } else {
+      return this.commitFilesIndividual(files, options);
+    }
+  };
+
+  private readonly commitFilesAggregated = async (
+    files: string[],
+    options: CommitOptions
+  ): Promise<number> => {
+    const spinner = ora('Analyzing files for intelligent grouping...').start();
+
+    try {
+      // Collect all file diffs for AI grouping analysis
+      const allDiffs: GitDiff[] = [];
+      const skippedFiles: string[] = [];
+
+      for (const file of files) {
+        try {
+          const fileDiff = await this.gitService.getFileDiff(file, false);
+          const totalChanges = fileDiff.additions + fileDiff.deletions;
+
+          if (this.shouldSkipFile(fileDiff, totalChanges)) {
+            this.logSkippedFile(this.getFileName(file), fileDiff);
+            skippedFiles.push(file);
+            continue;
+          }
+
+          allDiffs.push(fileDiff);
+        } catch (error) {
+          console.error(`Failed to analyze ${file}: ${error}`);
+          skippedFiles.push(file);
+        }
+      }
+
+      if (allDiffs.length === 0) {
+        spinner.fail('No valid files to process');
+        return 0;
+      }
+
+      spinner.text = 'Using AI to group related changes...';
+
+      // Use AI to determine optimal grouping
+      const aggregatedResult = await this.getAIService().generateAggregatedCommits(allDiffs);
+
+      if (aggregatedResult.fallbackToIndividual || aggregatedResult.groups.length === 0) {
+        spinner.fail('AI grouping failed, falling back to individual commits');
+        return this.commitFilesIndividual(files, options);
+      }
+
+      spinner.succeed(
+        `AI grouped ${allDiffs.length} files into ${aggregatedResult.groups.length} logical commits`
+      );
+
+      // Process each commit group
+      let processedCount = 0;
+      for (const group of aggregatedResult.groups) {
+        try {
+          const groupName = group.files.length > 1
+            ? `${group.files.length} files`
+            : this.getFileName(group.files[0]);
+
+          if (options.dryRun) {
+            console.log(`${chalk.blue(`  Would commit ${groupName}:`)}
+${chalk.gray(`  Files: ${group.files.map(f => this.getFileName(f)).join(', ')}`)}
+${chalk.blue(`  Message: "${group.message}"`)}`);
+          } else {
+            const commitSpinner = ora(`Committing ${groupName}...`).start();
+
+            // Stage all files in the group
+            for (const file of group.files) {
+              await this.gitService.stageFile(file);
+            }
+
+            // Wait for Git to release any lock files naturally
+            await this.gitService.waitForLockRelease();
+
+            // Commit the group
+            await this.gitService.commit(group.message);
+
+            commitSpinner.succeed(`✅ ${groupName}: ${group.message}`);
+          }
+
+          processedCount += group.files.length;
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error(chalk.red(`  Failed to commit group: ${errorMessage}`));
+        }
+      }
+
+      if (skippedFiles.length > 0) {
+        console.log(
+          chalk.yellow(`Skipped ${skippedFiles.length} files (empty or failed analysis)`)
+        );
+      }
+
+      return processedCount;
+    } catch (error) {
+      spinner.fail('Aggregated commit processing failed');
+      console.error(chalk.red(`Aggregated processing error: ${error}`));
+      console.log(chalk.yellow('Falling back to individual commits...'));
+      return this.commitFilesIndividual(files, options);
+    }
+  };
+
+  private readonly commitFilesIndividual = async (
     files: string[],
     options: CommitOptions
   ): Promise<number> => {
