@@ -7,7 +7,4 @@ export const CONFIG_DIR_MODE = 0o700;
 
 export const DEFAULT_CONFIG: CommitConfig = {
   model: 'gemini-2.0-flash-lite',
-  aggregation: {
-    enabled: true,
-  },
 };

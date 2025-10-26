@@ -84,15 +84,12 @@ program
   .option('-d, --dry-run', 'Show what would be committed without actually committing')
   .option('-i, --interactive', 'Use interactive mode (for traditional workflow only)')
   .option('--all', 'Stage all files and commit together (traditional workflow)')
-  .option('--aggregate', 'Enable AI-powered commit aggregation (group related changes)')
-  .option('--no-aggregate', 'Disable commit aggregation (commit files individually)')
   .action(
     async (options: {
       message?: string;
       dryRun?: boolean;
       interactive?: boolean;
       all?: boolean;
-      aggregate?: boolean;
     }): Promise<void> => {
       return withErrorHandling(
         async (): Promise<void> => {
@@ -102,8 +99,7 @@ program
             console.log(`${chalk.yellow('\n💡 Correct usage:')}
 ${chalk.blue('  cx commit --all --interactive    # Interactive traditional workflow')}
 ${chalk.blue('  cx commit --all                  # Non-interactive traditional workflow')}
-${chalk.blue('  cx commit                        # AI-powered grouping (default)')}
-${chalk.blue('  cx commit --no-aggregate         # Individual commits without grouping')}
+${chalk.blue('  cx commit                        # AI-powered intelligent grouping (default)')}
 ${chalk.blue('  cx commit --help                 # Show all options')}`);
             process.exit(1);
           }
