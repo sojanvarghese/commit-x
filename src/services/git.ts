@@ -355,24 +355,6 @@ export class GitService {
     );
   };
 
-  stageFiles = async (files: string[]): Promise<void> => {
-    return withErrorHandling(
-      async () => {
-        const validatedFiles = this.validateFilePaths(files);
-        if (validatedFiles.length === 0) {
-          throw new SecureError(
-            ERROR_MESSAGES.NO_VALID_FILES,
-            ErrorType.VALIDATION_ERROR,
-            { operation: 'stageFiles' },
-            true
-          );
-        }
-        await withTimeout(this.git.add(validatedFiles), calculateGitTimeout({}));
-      },
-      { operation: 'stageFiles' }
-    );
-  };
-
   stageFile = async (file: string): Promise<void> => {
     return withErrorHandling(
       async () => {

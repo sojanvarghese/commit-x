@@ -1,13 +1,4 @@
 import { z } from 'zod';
-import { match } from 'ts-pattern';
-import type {
-  SetOptional,
-  SetRequired,
-  PartialDeep,
-  RequiredKeysOf,
-  OptionalKeysOf,
-} from 'type-fest';
-import type { CommitConfig, GitDiff, CommitSuggestion } from '../types/common.js';
 
 // Base validation schemas
 export const ApiKeySchema = z
@@ -133,52 +124,16 @@ export const GitRepositorySchema = z
   }, 'Not a valid git repository');
 
 // Validation result type
-export type ValidationResult<T = any> = {
+export type ValidationResult<T = unknown> = {
   isValid: boolean;
   error?: string;
   sanitizedValue?: T;
 };
 
-
-// Enhanced type utilities using type-fest and utility-types
-export type SafeCommitConfig = SetOptional<CommitConfig, 'apiKey'>;
-export type RequiredCommitConfig = SetRequired<CommitConfig, 'apiKey'>;
-export type PartialCommitConfig = PartialDeep<CommitConfig>;
-
-// Advanced type utilities
-export type RequiredCommitConfigKeys = RequiredKeysOf<CommitConfig>;
-export type OptionalCommitConfigKeys = OptionalKeysOf<CommitConfig>;
-
-// Utility type guards
-export type IsCommitConfigValid<T> = T extends CommitConfig ? true : false;
-export type IsGitDiffValid<T> = T extends GitDiff ? true : false;
-export type IsCommitSuggestionValid<T> = T extends CommitSuggestion ? true : false;
-
 // Type-safe configuration validation
 export type ValidatedCommitConfig = z.infer<typeof CommitConfigSchema>;
 export type ValidatedGitDiff = z.infer<typeof GitDiffSchema>;
 export type ValidatedCommitSuggestion = z.infer<typeof CommitSuggestionSchema>;
-
-
-export const getFileTypeFromExtension = (filename: string) =>
-  match(filename.toLowerCase())
-    .with('.ts', '.tsx', () => 'typescript' as const)
-    .with('.js', '.jsx', () => 'javascript' as const)
-    .with('.py', () => 'python' as const)
-    .with('.java', () => 'java' as const)
-    .with('.go', () => 'go' as const)
-    .with('.rs', () => 'rust' as const)
-    .with('.md', () => 'markdown' as const)
-    .with('.json', () => 'json' as const)
-    .with('.yaml', '.yml', () => 'yaml' as const)
-    .with('.xml', () => 'xml' as const)
-    .with('.css', () => 'css' as const)
-    .with('.scss', '.sass', () => 'scss' as const)
-    .with('.less', () => 'less' as const)
-    .with('.html', '.htm', () => 'html' as const)
-    .with('.vue', () => 'vue' as const)
-    .with('.svelte', () => 'svelte' as const)
-    .otherwise(() => 'unknown' as const);
 
 // Type exports for use throughout the application
 export type {
@@ -187,5 +142,4 @@ export type {
   CommitSuggestion,
   GitStatus,
   CommitOptions,
-  PlaywrightPatterns,
 } from '../types/common.js';
