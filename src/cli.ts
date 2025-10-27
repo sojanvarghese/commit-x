@@ -9,41 +9,21 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import process from 'process';
 import chalk from 'chalk';
-import { ConfigManager } from './config.js';
-import type { CommitConfig } from './types/common.js';
-import { CommitMessageSchema, CommitConfigSchema } from './schemas/validation.js';
-import { ErrorType } from './types/error-handler.js';
-import { withErrorHandling, SecureError } from './utils/error-handler.js';
-import { PerformanceMonitor, withPerformanceTracking } from './utils/performance.js';
-import { handleErrorImmediate } from './utils/process-utils.js';
+import { lazyModules, preloadCriticalModules } from './utils/lazy-loader.js';
 import { PERFORMANCE_FLAGS } from './constants/performance.js';
+
+// Start background preloading of critical modules
+preloadCriticalModules();
 
 // Log startup time
 if (PERFORMANCE_FLAGS.ENABLE_PERFORMANCE_MONITORING) {
   process.nextTick(() => {
     const startupTime = performance.now() - startupStart;
-    if (startupTime > 500) { // Only log if startup is slow
+    if (startupTime > 200) { // Lowered threshold to 200ms target
       console.log(`🚀 Startup time: ${startupTime.toFixed(2)}ms`);
     }
   });
 }
-
-// Type definitions for dynamic imports
-type InquirerModule = typeof import('inquirer');
-type GradientStringModule = typeof import('gradient-string');
-
-let inquirerCache: InquirerModule | null = null;
-let gradientStringCache: GradientStringModule | null = null;
-
-const loadInquirer = async (): Promise<InquirerModule> => {
-  inquirerCache ??= await import('inquirer');
-  return inquirerCache;
-};
-
-const loadGradientString = async (): Promise<GradientStringModule> => {
-  gradientStringCache ??= await import('gradient-string');
-  return gradientStringCache;
-};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -91,6 +71,7 @@ program
       interactive?: boolean;
       all?: boolean;
     }): Promise<void> => {
+      const { withErrorHandling } = await import('./utils/error-handler.js');
       return withErrorHandling(
         async (): Promise<void> => {
           // Validate command combinations
@@ -104,8 +85,12 @@ ${chalk.blue('  cx commit --help                 # Show all options')}`);
             process.exit(1);
           }
 
-          // Validate commit message if provided
+          // Validate commit message if provided (lazy load validation)
           if (options.message) {
+            const { CommitMessageSchema } = await import('./schemas/validation.js');
+            const { ErrorType } = await import('./types/error-handler.js');
+            const { SecureError } = await import('./utils/error-handler.js');
+
             const result = CommitMessageSchema.safeParse(options.message);
             if (!result.success) {
               throw new SecureError(
@@ -118,13 +103,13 @@ ${chalk.blue('  cx commit --help                 # Show all options')}`);
             options.message = result.data;
           }
 
-          // Import only when needed to avoid loading heavy dependencies
+          // Use lazy loading for core functionality
           const operation = options.all ? 'commit-traditional' : 'commit-ai';
 
+          const { withPerformanceTracking } = await import('./utils/performance.js');
           await withPerformanceTracking(operation, async () => {
-            const { CommitX } = await import('./core/commitx.js');
+            const { CommitX } = await lazyModules.commitX();
             const commitX = new CommitX();
-
 
             await commitX.commit({
               message: options.message,
@@ -145,10 +130,11 @@ program
   .alias('s')
   .description('Show repository status and changes')
   .action(async () => {
+    const { withErrorHandling } = await import('./utils/error-handler.js');
     return withErrorHandling(
       async (): Promise<void> => {
-        // Import only when needed to avoid loading heavy dependencies
-        const { CommitX } = await import('./core/commitx.js');
+        // Use lazy loading for core functionality
+        const { CommitX } = await lazyModules.commitX();
         const commitX = new CommitX();
         await commitX.status();
       },
@@ -162,10 +148,11 @@ program
   .alias('d')
   .description('Show unstaged changes summary')
   .action(async () => {
+    const { withErrorHandling } = await import('./utils/error-handler.js');
     return withErrorHandling(
       async (): Promise<void> => {
-        // Import only when needed to avoid loading heavy dependencies
-        const { CommitX } = await import('./core/commitx.js');
+        // Use lazy loading for core functionality
+        const { CommitX } = await lazyModules.commitX();
         const commitX = new CommitX();
         await commitX.diff();
       },
@@ -180,8 +167,14 @@ configCmd
   .command('set <key> <value>')
   .description('Set configuration value')
   .action(async (key: string, value: string): Promise<void> => {
+    const { withErrorHandling, SecureError } = await import('./utils/error-handler.js');
     await withErrorHandling(
       async (): Promise<void> => {
+        // Lazy load validation and config
+        const { CommitConfigSchema } = await import('./schemas/validation.js');
+        const { ErrorType } = await import('./types/error-handler.js');
+        const { ConfigManager } = await lazyModules.config();
+
         // Validate that the key is a valid config key
         if (!(key in CommitConfigSchema.shape)) {
           throw new SecureError(
@@ -197,7 +190,7 @@ configCmd
         // Parse boolean values
         const parsedValue = parseConfigValue(value);
 
-        await config.set(key as keyof CommitConfig, parsedValue);
+        await config.set(key as keyof typeof config.getConfig, parsedValue);
         console.log(chalk.green(`✅ Set ${key} = ${parsedValue}`));
       },
       { operation: 'configSet', key }
@@ -208,12 +201,18 @@ configCmd
   .command('get [key]')
   .description('Get configuration value(s)')
   .action(async (key?: string): Promise<void> => {
+    const { withErrorHandling, SecureError } = await import('./utils/error-handler.js');
     await withErrorHandling(
       async (): Promise<void> => {
+        // Lazy load config and validation
+        const { ConfigManager } = await lazyModules.config();
+        const { CommitConfigSchema } = await import('./schemas/validation.js');
+        const { ErrorType } = await import('./types/error-handler.js');
+
         const config = ConfigManager.getInstance();
         const allKeys = Object.keys(CommitConfigSchema.shape);
 
-        const isValidKey = (k: string): k is keyof CommitConfig => allKeys.includes(k);
+        const isValidKey = (k: string): boolean => allKeys.includes(k);
 
         if (key) {
           if (!isValidKey(key)) {
@@ -225,7 +224,7 @@ configCmd
             );
           }
 
-          const value = key === 'apiKey' ? config.getApiKey() : config.get(key);
+          const value = key === 'apiKey' ? config.getApiKey() : config.get(key as keyof typeof config.getConfig);
           console.log(`${key}: ${key === 'apiKey' && value ? '********' : value}`);
         } else {
           const allConfig = config.getConfig();
@@ -252,17 +251,17 @@ configCmd
   .description('Reset configuration to defaults')
   .action(async () => {
     try {
-      const inquirer = await loadInquirer();
-      const { confirm } = await inquirer.prompt([
-        {
+      const inquirer = await lazyModules.inquirer();
+      const { confirm } = await inquirer.default.prompt({
+        confirm: {
           type: 'confirm',
-          name: 'confirm',
           message: 'Are you sure you want to reset all configuration to defaults?',
           default: false,
         },
-      ]);
+      });
 
       if (confirm) {
+        const { ConfigManager } = await lazyModules.config();
         const config = ConfigManager.getInstance();
         config.reset();
         console.log(chalk.green('✅ Configuration reset to defaults'));
@@ -270,6 +269,7 @@ configCmd
         console.log(chalk.yellow('Reset cancelled'));
       }
     } catch (error) {
+      const { handleErrorImmediate } = await import('./utils/process-utils.js');
       handleErrorImmediate(error);
     }
   });
@@ -279,16 +279,16 @@ program
   .command('setup')
   .description('Interactive setup for first-time users')
   .action(async () => {
-    const inquirer = await loadInquirer();
+    const inquirer = await lazyModules.inquirer();
     console.log(chalk.blue('🚀 Welcome to Commitron Setup!\n'));
 
     try {
+      const { ConfigManager } = await lazyModules.config();
       const config = ConfigManager.getInstance();
 
-      const answers = await inquirer.prompt([
-        {
+      const answers = await inquirer.default.prompt({
+        apiKey: {
           type: 'input',
-          name: 'apiKey',
           message: 'Enter your Gemini AI API key:',
           validate: (input: string): string | boolean => {
             if (!input.trim()) {
@@ -297,7 +297,7 @@ program
             return true;
           },
         },
-      ]);
+      });
 
       await config.saveConfig(answers);
 
@@ -305,6 +305,7 @@ program
 ${chalk.blue('You can now use "cx" to start making AI-powered commits.')}
 ${chalk.gray('Use "cx config" to modify settings later.')}`);
     } catch (error) {
+      const { handleErrorImmediate } = await import('./utils/process-utils.js');
       handleErrorImmediate(error, 'Setup failed');
     }
   });
@@ -355,8 +356,8 @@ program
   .command('help-examples')
   .description('Show usage examples')
   .action(async (): Promise<void> => {
-    const { pastel } = await loadGradientString();
-    console.log(`${pastel('📚 Commitron Usage Examples:\n')}
+    const gradientString = await lazyModules.gradientString();
+    console.log(`${gradientString.pastel('📚 Commitron Usage Examples:\n')}
 
 ${chalk.yellow('Basic usage:')}
   cx                             # Process files with AI
@@ -395,8 +396,8 @@ ${chalk.gray('Environment:')}
 ${chalk.gray('\nGit repository detection:')}`;
 
     try {
-      const { validateGitRepository } = await import('./utils/security.js');
-      const validation = await validateGitRepository(process.cwd());
+      const security = await lazyModules.security();
+      const validation = await security.validateGitRepository(process.cwd());
       debugOutput += `\n  Valid Git repository: ${validation.isValid ? '✅ Yes' : '❌ No'}`;
       if (!validation.isValid) {
         debugOutput += `\n  Error: ${validation.error}`;
@@ -431,11 +432,12 @@ ${chalk.gray('\nGit repository detection:')}`;
 // Default action for commit when no subcommand is provided
 program.action(async (): Promise<void> => {
   try {
-    // Import only when needed to avoid loading heavy dependencies
-    const { CommitX } = await import('./core/commitx.js');
+    // Use lazy loading for core functionality
+    const { CommitX } = await lazyModules.commitX();
     const commitX = new CommitX();
     await commitX.commit(); // Uses AI processing by default
   } catch (error) {
+    const { handleErrorImmediate } = await import('./utils/process-utils.js');
     handleErrorImmediate(error);
   }
 });
@@ -463,9 +465,14 @@ ${chalk.gray('\nFor more information, visit: https://github.com/sojanvarghese/co
 
 // Performance monitoring exit handler
 if (PERFORMANCE_FLAGS.ENABLE_PERFORMANCE_MONITORING) {
-  process.on('exit', () => {
-    const monitor = PerformanceMonitor.getInstance();
-    monitor.logMetrics();
+  process.on('exit', async () => {
+    try {
+      const { PerformanceMonitor } = await import('./utils/performance.js');
+      const monitor = PerformanceMonitor.getInstance();
+      monitor.logMetrics();
+    } catch {
+      // Ignore errors during cleanup
+    }
   });
 }
 
@@ -474,13 +481,15 @@ if (process.argv.length === 2) {
   // No arguments provided, run default commit
   void (async (): Promise<void> => {
     try {
-      // Import only when needed to avoid loading heavy dependencies
+      // Use lazy loading for performance tracking and core functionality
+      const { withPerformanceTracking } = await import('./utils/performance.js');
       await withPerformanceTracking('default-commit', async () => {
-        const { CommitX } = await import('./core/commitx.js');
+        const { CommitX } = await lazyModules.commitX();
         const commitX = new CommitX();
         await commitX.commit();
       });
     } catch (error) {
+      const { handleErrorImmediate } = await import('./utils/process-utils.js');
       handleErrorImmediate(error);
     }
   })();
