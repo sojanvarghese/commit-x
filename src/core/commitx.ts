@@ -1,6 +1,6 @@
-import chalk from 'chalk';
-import ora from 'ora';
-import inquirer from 'inquirer';
+import { lightColors } from '../utils/colors.js';
+import { lightSpinner } from '../utils/spinner.js';
+import { prompt } from '../utils/prompts.js';
 import process from 'process';
 import { GitService } from '../services/git.js';
 import { AIService } from '../services/ai.js';
@@ -46,7 +46,7 @@ export class CommitX {
       const unstagedFiles = await this.gitService.getUnstagedFiles();
 
       if (unstagedFiles.length === 0) {
-        console.log(chalk.yellow(WARNING_MESSAGES.NO_CHANGES_DETECTED));
+        console.log(lightColors.yellow(WARNING_MESSAGES.NO_CHANGES_DETECTED));
         return;
       }
 
@@ -54,7 +54,7 @@ export class CommitX {
       const processedCount = await this.commitFilesBatch(unstagedFiles, options);
 
       console.log(
-        chalk.green( processedCount > 1 ?
+        lightColors.green( processedCount > 1 ?
           `\n✅ Successfully processed ${processedCount} of ${unstagedFiles.length} files.` :
           `\n✅ Successfully processed the file.`
           )
@@ -76,15 +76,15 @@ export class CommitX {
       if (status.unstaged.length > 0 || status.untracked.length > 0) {
         const shouldStage = await this.promptStageFiles(status);
         if (shouldStage) {
-          const spinner = ora(UI_CONSTANTS.SPINNER_MESSAGES.STAGING).start();
+          const spinner = lightSpinner(UI_CONSTANTS.SPINNER_MESSAGES.STAGING).start();
           await this.gitService.stageAll();
           spinner.succeed(SUCCESS_MESSAGES.FILES_STAGED);
         } else {
-          console.log(chalk.yellow(WARNING_MESSAGES.NO_FILES_STAGED));
+          console.log(lightColors.yellow(WARNING_MESSAGES.NO_FILES_STAGED));
           return;
         }
       } else {
-        console.log(chalk.yellow(WARNING_MESSAGES.NO_CHANGES_DETECTED));
+        console.log(lightColors.yellow(WARNING_MESSAGES.NO_CHANGES_DETECTED));
         return;
       }
     }
@@ -93,19 +93,19 @@ export class CommitX {
       options.message ?? (await this.generateCommitMessage(options.interactive));
 
     if (!commitMessage) {
-      console.log(chalk.yellow(WARNING_MESSAGES.NO_COMMIT_MESSAGE));
+      console.log(lightColors.yellow(WARNING_MESSAGES.NO_COMMIT_MESSAGE));
       return;
     }
 
     if (options.dryRun) {
-      console.log(`${chalk.blue(INFO_MESSAGES.DRY_RUN_COMMIT)}
-${chalk.white(`"${commitMessage}"`)}`);
+      console.log(`${lightColors.blue(INFO_MESSAGES.DRY_RUN_COMMIT)}
+${lightColors.white(`"${commitMessage}"`)}`);
       return;
     }
 
-    const commitSpinner = ora(UI_CONSTANTS.SPINNER_MESSAGES.COMMITTING).start();
+    const commitSpinner = lightSpinner(UI_CONSTANTS.SPINNER_MESSAGES.COMMITTING).start();
     await this.gitService.commit(commitMessage);
-    commitSpinner.succeed(`Committed: ${chalk.green(commitMessage)}`);
+    commitSpinner.succeed(`Committed: ${lightColors.green(commitMessage)}`);
 
     // Force exit to prevent delay from lingering HTTP connections
     exitProcess(0);
@@ -115,7 +115,7 @@ ${chalk.white(`"${commitMessage}"`)}`);
     files: string[],
     options: CommitOptions
   ): Promise<number> => {
-    const spinner = ora('Analyzing files for intelligent grouping...').start();
+    const spinner = lightSpinner('Analyzing files for intelligent grouping...').start();
 
     try {
       // Collect all file diffs for AI grouping analysis
@@ -145,7 +145,7 @@ ${chalk.white(`"${commitMessage}"`)}`);
         return 0;
       }
 
-      spinner.text = 'Using AI to group related changes...';
+      spinner.message = 'Using AI to group related changes...';
 
       // Use AI to determine optimal grouping
       const aggregatedResult = await this.getAIService().generateAggregatedCommits(allDiffs);
@@ -170,12 +170,12 @@ ${chalk.white(`"${commitMessage}"`)}`);
           let processedFilesInGroup = 0;
 
           if (options.dryRun) {
-            console.log(`${chalk.blue(`  Would commit ${groupName}:`)}
-${chalk.gray(`  Files: ${group.files.map(f => this.getFileName(f)).join(', ')}`)}
-${chalk.blue(`  Message: "${group.message}"`)}`);
+            console.log(`${lightColors.blue(`  Would commit ${groupName}:`)}
+${lightColors.gray(`  Files: ${group.files.map(f => this.getFileName(f)).join(', ')}`)}
+${lightColors.blue(`  Message: "${group.message}"`)}`);
             processedFilesInGroup = group.files.length;
           } else {
-            const commitSpinner = ora(`Committing ${groupName}...`).start();
+            const commitSpinner = lightSpinner(`Committing ${groupName}...`).start();
 
             // Stage all files in the group
             const stagedFiles: string[] = [];
@@ -184,7 +184,7 @@ ${chalk.blue(`  Message: "${group.message}"`)}`);
                 await this.gitService.stageFile(file);
                 stagedFiles.push(file);
               } catch (error) {
-                console.warn(chalk.yellow(`  ⚠️  Failed to stage ${file}: ${error}`));
+                console.warn(lightColors.yellow(`  ⚠️  Failed to stage ${file}: ${error}`));
                 // Continue with other files in the group
               }
             }
@@ -210,20 +210,20 @@ ${chalk.blue(`  Message: "${group.message}"`)}`);
           processedCount += processedFilesInGroup;
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          console.error(chalk.red(`  Failed to commit group: ${errorMessage}`));
+          console.error(lightColors.red(`  Failed to commit group: ${errorMessage}`));
         }
       }
 
       if (skippedFiles.length > 0) {
         console.log(
-          chalk.yellow(`Skipped ${skippedFiles.length} files (empty or failed analysis)`)
+          lightColors.yellow(`Skipped ${skippedFiles.length} files (empty or failed analysis)`)
         );
       }
 
       return processedCount;
     } catch (error) {
       spinner.fail('Commit processing failed');
-      console.error(chalk.red(`Processing error: ${error}`));
+      console.error(lightColors.red(`Processing error: ${error}`));
       return 0;
     }
   };
@@ -240,16 +240,16 @@ ${chalk.blue(`  Message: "${group.message}"`)}`);
 
   private readonly logSkippedFile = (fileName: string, fileDiff: GitDiff): void => {
     if (fileDiff.isNew) {
-      console.log(chalk.yellow(`  Skipping empty new file: ${fileName}`));
+      console.log(lightColors.yellow(`  Skipping empty new file: ${fileName}`));
     } else {
-      console.log(chalk.yellow(`  Skipping file with no changes: ${fileName}`));
+      console.log(lightColors.yellow(`  Skipping file with no changes: ${fileName}`));
     }
   };
 
 
 
   private readonly generateCommitMessage = async (interactive: boolean = true): Promise<string> => {
-    const spinner = ora('Analyzing changes...').start();
+    const spinner = lightSpinner('Analyzing changes...').start();
 
     try {
       const diffs = await this.gitService.getStagedDiff();
@@ -259,7 +259,7 @@ ${chalk.blue(`  Message: "${group.message}"`)}`);
         return '';
       }
 
-      spinner.text = 'Generating commit messages...';
+      spinner.message = 'Generating commit messages...';
 
       const suggestions = await this.getAIService().generateCommitMessage(diffs);
 
@@ -281,36 +281,35 @@ ${chalk.blue(`  Message: "${group.message}"`)}`);
     file?: string
   ): Promise<string> => {
     const choices = suggestions.map((suggestion) => ({
-      name: `${chalk.green(suggestion.message)}${suggestion.description ? chalk.gray(` - ${suggestion.description}`) : ''}`,
+      name: `${lightColors.green(suggestion.message)}${suggestion.description ? lightColors.gray(` - ${suggestion.description}`) : ''}`,
       value: suggestion.message,
       short: suggestion.message,
     }));
 
     choices.push({
-      name: chalk.blue('✏️  Write custom message'),
+      name: lightColors.blue('✏️  Write custom message'),
       value: 'custom',
       short: 'Custom',
     });
 
     if (file) {
-      choices.push({ name: chalk.yellow('⏭️  Skip this file'), value: 'skip', short: 'Skip' });
+      choices.push({ name: lightColors.yellow('⏭️  Skip this file'), value: 'skip', short: 'Skip' });
     }
 
-    choices.push({ name: chalk.red('❌ Cancel'), value: 'cancel', short: 'Cancel' });
+    choices.push({ name: lightColors.red('❌ Cancel'), value: 'cancel', short: 'Cancel' });
 
     const message = file
-      ? `Select commit message for ${chalk.cyan(file)}:`
+      ? `Select commit message for ${lightColors.cyan(file)}:`
       : 'Select a commit message:';
 
-    const { selected } = await inquirer.prompt([
-      {
+    const { selected } = await prompt({
+      selected: {
         type: 'list',
-        name: 'selected',
         message,
         choices,
         pageSize: UI_CONSTANTS.PAGE_SIZE,
       },
-    ]);
+    });
 
     switch (selected) {
       case 'cancel':
@@ -318,11 +317,10 @@ ${chalk.blue(`  Message: "${group.message}"`)}`);
         return '';
 
       case 'custom':
-        const { customMessage } = await inquirer.prompt([
-          {
+        const { customMessage } = await prompt({
+          customMessage: {
             type: 'input',
-            name: 'customMessage',
-            message: `Enter commit message${file ? ` for ${chalk.cyan(file)}` : ''}:`,
+            message: `Enter commit message${file ? ` for ${lightColors.cyan(file)}` : ''}:`,
             validate: (input: string): string | boolean => {
               if (!input.trim()) {
                 return 'Commit message cannot be empty';
@@ -333,7 +331,7 @@ ${chalk.blue(`  Message: "${group.message}"`)}`);
               return true;
             },
           },
-        ]);
+        });
         return customMessage;
 
       default:
@@ -345,28 +343,27 @@ ${chalk.blue(`  Message: "${group.message}"`)}`);
     unstaged: string[];
     untracked: string[];
   }): Promise<boolean> => {
-    let output = `${chalk.yellow('\nUnstaged changes detected:')}`;
+    let output = `${lightColors.yellow('\nUnstaged changes detected:')}`;
 
     if (status.unstaged.length > 0) {
-      output += `\n${chalk.yellow('Modified files:')}`;
-      output += status.unstaged.map((file: string) => `\n  ${chalk.red('M')} ${file}`).join('');
+      output += `\n${lightColors.yellow('Modified files:')}`;
+      output += status.unstaged.map((file: string) => `\n  ${lightColors.red('M')} ${file}`).join('');
     }
 
     if (status.untracked.length > 0) {
-      output += `\n${chalk.yellow('Untracked files:')}`;
-      output += status.untracked.map((file: string) => `\n  ${chalk.red('??')} ${file}`).join('');
+      output += `\n${lightColors.yellow('Untracked files:')}`;
+      output += status.untracked.map((file: string) => `\n  ${lightColors.red('??')} ${file}`).join('');
     }
 
     console.log(output);
 
-    const { shouldStage } = await inquirer.prompt([
-      {
+    const { shouldStage } = await prompt({
+      shouldStage: {
         type: 'confirm',
-        name: 'shouldStage',
         message: 'Stage all changes and continue?',
         default: true,
       },
-    ]);
+    });
 
     return shouldStage;
   };
@@ -374,32 +371,32 @@ ${chalk.blue(`  Message: "${group.message}"`)}`);
   status = async (): Promise<void> => {
     try {
       if (!(await this.gitService.isGitRepository())) {
-        console.log(chalk.red('Not a git repository'));
+        console.log(lightColors.red('Not a git repository'));
         return;
       }
 
       const status = await this.gitService.getStatus();
       const repoInfo = await this.gitService.getRepoInfo();
 
-      let statusOutput = `${chalk.bold(`\n📁 Repository: ${repoInfo.name}`)}
-${chalk.bold(`🌿 Branch: ${repoInfo.branch}`)}
+      let statusOutput = `${lightColors.bold(`\n📁 Repository: ${repoInfo.name}`)}
+${lightColors.bold(`🌿 Branch: ${repoInfo.branch}`)}
 `;
 
       if (status.staged.length > 0) {
-        statusOutput += `\n${chalk.green('✅ Staged changes:')}`;
-        statusOutput += status.staged.map((file) => `\n  ${chalk.green('A')} ${file}`).join('');
+        statusOutput += `\n${lightColors.green('✅ Staged changes:')}`;
+        statusOutput += status.staged.map((file) => `\n  ${lightColors.green('A')} ${file}`).join('');
         statusOutput += '\n';
       }
 
       if (status.unstaged.length > 0) {
-        statusOutput += `\n${chalk.yellow('📝 Unstaged changes:')}`;
-        statusOutput += status.unstaged.map((file) => `\n  ${chalk.yellow('M')} ${file}`).join('');
+        statusOutput += `\n${lightColors.yellow('📝 Unstaged changes:')}`;
+        statusOutput += status.unstaged.map((file) => `\n  ${lightColors.yellow('M')} ${file}`).join('');
         statusOutput += '\n';
       }
 
       if (status.untracked.length > 0) {
-        statusOutput += `\n${chalk.red('❓ Untracked files:')}`;
-        statusOutput += status.untracked.map((file) => `\n  ${chalk.red('??')} ${file}`).join('');
+        statusOutput += `\n${lightColors.red('❓ Untracked files:')}`;
+        statusOutput += status.untracked.map((file) => `\n  ${lightColors.red('??')} ${file}`).join('');
         statusOutput += '\n';
       }
 
@@ -407,14 +404,14 @@ ${chalk.bold(`🌿 Branch: ${repoInfo.branch}`)}
 
       console.log(
         status.total === 0
-          ? chalk.green('✨ Working directory is clean')
-          : chalk.blue(`📊 Total changes: ${status.total}`)
+          ? lightColors.green('✨ Working directory is clean')
+          : lightColors.blue(`📊 Total changes: ${status.total}`)
       );
 
       // Show last commit
       const lastCommit = await this.gitService.getLastCommitMessage();
       if (lastCommit) {
-        console.log(chalk.gray(`\n💬 Last commit: "${lastCommit}"`));
+        console.log(lightColors.gray(`\n💬 Last commit: "${lastCommit}"`));
       }
 
       // Force exit to prevent delay
@@ -427,13 +424,13 @@ ${chalk.bold(`🌿 Branch: ${repoInfo.branch}`)}
   diff = async (): Promise<void> => {
     try {
       if (!(await this.gitService.isGitRepository())) {
-        console.log(chalk.red('Not a git repository'));
+        console.log(lightColors.red('Not a git repository'));
         exitProcess(1);
         return;
       }
 
       const summary = await this.gitService.getChangesSummary();
-      console.log(`${chalk.blue('📋 Changes Summary:')}
+      console.log(`${lightColors.blue('📋 Changes Summary:')}
 
 ${summary}`);
 
