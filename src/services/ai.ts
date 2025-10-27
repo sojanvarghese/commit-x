@@ -21,56 +21,21 @@ import {
   createPrivacyReport,
   type SanitizedDiff,
 } from '../utils/data-sanitization.js';
-
-// Simple LRU cache for AI responses
-class LRUCache<K, V> {
-  private readonly cache = new Map<K, V>();
-  private readonly maxSize: number;
-
-  constructor(maxSize: number = 50) {
-    this.maxSize = maxSize;
-  }
-
-  get(key: K): V | undefined {
-    const value = this.cache.get(key);
-    if (value !== undefined) {
-      // Move to end (most recently used)
-      this.cache.delete(key);
-      this.cache.set(key, value);
-    }
-    return value;
-  }
-
-  set(key: K, value: V): void {
-    if (this.cache.has(key)) {
-      this.cache.delete(key);
-    } else if (this.cache.size >= this.maxSize) {
-      // Remove least recently used
-      const firstKey = this.cache.keys().next().value as K;
-      this.cache.delete(firstKey);
-    }
-    this.cache.set(key, value);
-  }
-
-  clear(): void {
-    this.cache.clear();
-  }
-
-  size(): number {
-    return this.cache.size;
-  }
-}
+import { PersistentAICache, RequestBatcher, type AICache } from '../utils/ai-cache.js';
 
 export class AIService {
   private readonly genAI: GoogleGenAI;
   private readonly config: ConfigManager;
   private readonly errorHandler: ErrorHandler;
-  private readonly responseCache = new LRUCache<string, CommitSuggestion[]>(100);
+  private readonly aiCache: AICache;
+  private readonly requestBatcher: RequestBatcher;
   private modelName: string | null = null; // Cache the model name
 
   constructor() {
     this.config = ConfigManager.getInstance();
     this.errorHandler = ErrorHandler.getInstance();
+    this.aiCache = new PersistentAICache();
+    this.requestBatcher = new RequestBatcher();
 
     const apiKey = this.config.getApiKey();
 
@@ -95,11 +60,9 @@ export class AIService {
     return this.modelName;
   }
 
-  // Generate cache key from diffs for deduplication
+  // Enhanced cache key generation now handled by AICache
   private generateCacheKey(diffs: GitDiff[]): string {
-    return diffs
-      .map((diff) => `${diff.file}:${diff.additions}:${diff.deletions}:${diff.changes?.substring(0, 100)}`)
-      .join('|');
+    return this.aiCache.generateKey(diffs);
   }
 
   generateCommitMessage = async (diffs: GitDiff[]): Promise<CommitSuggestion[]> => {
@@ -118,7 +81,7 @@ export class AIService {
 
             // Check cache first
             const cacheKey = this.generateCacheKey(diffs);
-            const cached = this.responseCache.get(cacheKey);
+            const cached = await this.aiCache.get(cacheKey);
             if (cached) {
               return cached;
             }
@@ -185,12 +148,17 @@ export class AIService {
               fileCount: validatedDiffs.length,
               totalChanges
             });
-            const result = await withTimeout(
-              this.genAI.models.generateContent({
-                model: modelName,
-                contents: prompt
-              }),
-              aiTimeout
+
+            // Use request batching to avoid duplicate requests
+            const result = await this.requestBatcher.batch(
+              cacheKey,
+              async () => withTimeout(
+                this.genAI.models.generateContent({
+                  model: modelName,
+                  contents: prompt
+                }),
+                aiTimeout
+              )
             );
             const text = result.text ?? '';
 
@@ -201,8 +169,8 @@ export class AIService {
             // Validate suggestions using Zod
             const validatedSuggestions = this.validateAndImprove(suggestions);
 
-            // Cache the result
-            this.responseCache.set(cacheKey, validatedSuggestions);
+            // Cache the result asynchronously (don't wait for it)
+            void this.aiCache.set(cacheKey, validatedSuggestions);
 
             return validatedSuggestions;
           },
@@ -640,6 +608,21 @@ export class AIService {
               );
             }
 
+            // Check cache for aggregated requests too
+            const aggregatedCacheKey = `agg_${this.generateCacheKey(validatedDiffs)}`;
+            const cachedAggregated = await this.aiCache.get(aggregatedCacheKey);
+            if (cachedAggregated) {
+              // Convert cached suggestions back to aggregated format
+              return {
+                groups: [{
+                  files: validatedDiffs.map(d => d.file),
+                  message: cachedAggregated[0]?.message || this.generateFallbackMessage(validatedDiffs[0]),
+                  description: cachedAggregated[0]?.description,
+                  confidence: cachedAggregated[0]?.confidence || 0.7
+                }]
+              };
+            }
+
             const totalChanges = validatedDiffs.reduce((sum, diff) => sum + diff.additions + diff.deletions, 0);
             const aiTimeout = calculateAITimeout({
               diffSize: prompt.length,
@@ -647,17 +630,29 @@ export class AIService {
               totalChanges
             });
 
-            const result = await withTimeout(
-              this.genAI.models.generateContent({
-                model: modelName,
-                contents: prompt
-              }),
-              aiTimeout
+            const result = await this.requestBatcher.batch(
+              aggregatedCacheKey,
+              async () => withTimeout(
+                this.genAI.models.generateContent({
+                  model: modelName,
+                  contents: prompt
+                }),
+                aiTimeout
+              )
             );
 
             const text = result.text ?? '';
             const aggregatedResult = this.parseAggregatedResponse(text, validatedDiffs, sanitizedDiffs);
 
+            // Cache the aggregated result (convert to suggestions format for caching)
+            if (aggregatedResult.groups.length > 0) {
+              const cacheableSuggestions: CommitSuggestion[] = aggregatedResult.groups.map(group => ({
+                message: group.message,
+                description: group.description,
+                confidence: group.confidence || 0.7
+              }));
+              void this.aiCache.set(aggregatedCacheKey, cacheableSuggestions);
+            }
 
             return aggregatedResult;
           },
