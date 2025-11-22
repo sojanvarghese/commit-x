@@ -4,7 +4,7 @@ import { ConfigManager } from '../config.js';
 import { GitDiffSchema, CommitSuggestionSchema, DiffContentSchema } from '../schemas/validation.js';
 import { withTimeout } from '../utils/security.js';
 import { ErrorType } from '../types/error-handler.js';
-import { ErrorHandler, withErrorHandling, withRetry, SecureError } from '../utils/error-handler.js';
+import { withErrorHandling, withRetry, SecureError } from '../utils/error-handler.js';
 import { DEFAULT_LIMITS } from '../constants/security.js';
 import { calculateAITimeout } from '../utils/timeout.js';
 import {
@@ -26,14 +26,12 @@ import { PersistentAICache, RequestBatcher, type AICache } from '../utils/ai-cac
 export class AIService {
   private readonly genAI: GoogleGenAI;
   private readonly config: ConfigManager;
-  private readonly errorHandler: ErrorHandler;
   private readonly aiCache: AICache;
   private readonly requestBatcher: RequestBatcher;
   private modelName: string | null = null; // Cache the model name
 
   constructor() {
     this.config = ConfigManager.getInstance();
-    this.errorHandler = ErrorHandler.getInstance();
     this.aiCache = new PersistentAICache();
     this.requestBatcher = new RequestBatcher();
 
@@ -211,142 +209,77 @@ export class AIService {
       }
     }
 
-    const promptData = {
-      role: 'Expert Git Commit Message Generator',
-      task: "Generate concise Git commit messages (3-20 words each) for each file's specific changes. Each message must accurately describe WHAT WAS CHANGED in that specific file.",
-      instructions: [
-        '**Focus:** Describe new functionality, features, or significant changes introduced.',
-        "**Tense:** Use strong past tense action verbs (e.g., 'Implemented', 'Added', 'Created', 'Refactored', 'Fixed', 'Optimized') at the start of the message.",
-        "**Purpose/Value:** Clearly articulate the 'why' behind the change and its benefit to the system or users.",
-        '**Specificity:** Be highly specific. Avoid generic or vague statements. Detail the exact functionality or change.',
-        "**Prefixes:** DO NOT include conventional prefixes (e.g., 'feat:', 'fix:', 'chore:').",
-        '**Length:** Strictly adhere to the 3 to 20-word limit.',
-        '**Output Format:** Provide the response in JSON, following the specified structure.',
-        '**Analysis:** Thoroughly analyze the provided `code_diffs` to infer the core functional changes.',
-        '**Individual Focus:** Generate UNIQUE messages for each file based on its specific changes. Do not reuse the same message for different files.',
-      ],
-      examples: {
-        good_commit_messages: [
-          {
-            message: 'Implemented Zod validation for type-safe configuration',
-            rationale: "More concise, removed 'management' without losing meaning.",
-          },
-          {
-            message: 'Added ts-pattern utilities for error handling and file type detection',
-            rationale: "Removed 'robust' for brevity, retaining core functionality.",
-          },
-          {
-            message: 'Created centralized validation with comprehensive type definitions',
-            rationale: "Removed 'system' as it's implied by 'centralized validation'.",
-          },
-          {
-            message: 'Integrated tsup build configuration for optimized bundles',
-            rationale: "Shortened 'bundle generation' to 'bundles' for conciseness.",
-          },
-          {
-            message: 'Built pattern matching for commit message classification',
-            rationale: "Removed 'utilities' as 'pattern matching' implies the feature itself.",
-          },
-        ],
-        bad_commit_messages: [
-          {
-            message: 'Major updates to validation.ts (+279/-0 lines)',
-            reason_for_badness:
-              "Focuses on metrics (line changes) rather than functional impact. Lacks 'what' and 'why'.",
-          },
-          {
-            message: 'Improved code quality and maintainability',
-            reason_for_badness:
-              'Generic statement of intent, not a description of concrete functional changes or features.',
-          },
-          {
-            message: 'Enhanced data processing capabilities',
-            reason_for_badness: 'Lacks details on *how* or *what* was enhanced. Too abstract.',
-          },
-          {
-            message: 'Added 15 new functions and 3 classes',
-            reason_for_badness:
-              'Focuses on quantity of code elements, not the functional purpose or value they provide.',
-          },
-          {
-            message: 'Implemented a new system for the purpose of managing user authentication',
-            reason_for_badness:
-              "Contains filler words like 'a new system for the purpose of' and 'managing'. Can be much more concise.",
-          },
-        ],
-      },
-      input_files: sanitizedDiffs.map((diff, index) => ({
-        id: index + 1,
-        name: diff.file,
-        status: diff.isNew
-          ? 'new file created'
-          : diff.isDeleted
-            ? 'file deleted'
-            : diff.isRenamed
-              ? 'file renamed'
-              : 'modified',
-        changes: diff.changes?.substring(0, UI_CONSTANTS.DIFF_CONTENT_TRUNCATE_LIMIT) || '',
-        truncated: diff.changes && diff.changes.length > UI_CONSTANTS.DIFF_CONTENT_TRUNCATE_LIMIT,
-        additions: diff.additions,
-        deletions: diff.deletions,
-        sanitized: diff.sanitized,
-      })),
-      output_format_instructions: {
-        description:
-          "The output must be a JSON object containing suggested commit messages. Confidence scores (0-1) indicate the model's certainty.",
-        structure:
-          diffs.length === 1
-            ? {
-                schema: {
-                  suggestions: [
-                    {
-                      message: 'string (3-20 words, concise functional summary)',
-                      confidence: 'number (0-1, likelihood of message accuracy)',
-                    },
-                  ],
-                },
-              }
-            : {
-                schema: {
-                  files: {
-                    'filename1.ts': {
-                      message: 'string (3-20 words, concise functional summary for filename1)',
-                      confidence: 'number (0-1, likelihood of message accuracy)',
-                    },
-                    'filename2.js': {
-                      message: 'string (3-20 words, concise functional summary for filename2)',
-                      confidence: 'number (0-1, likelihood of message accuracy)',
-                    },
-                  },
-                },
-              },
-        example:
-          diffs.length === 1
-            ? {
-                suggestions: [
-                  {
-                    message: 'Implemented user authentication system',
-                    confidence: 0.9,
-                  },
-                ],
-              }
-            : {
-                files: {
-                  'auth.ts': {
-                    message: 'Implemented user authentication system',
-                    confidence: 0.9,
-                  },
-                  'user.js': {
-                    message: 'Added user profile management features',
-                    confidence: 0.8,
-                  },
-                },
-              },
-      },
-    };
+    const promptData = `role: Expert Git Commit Message Generator
+task: Generate concise Git commit messages (3-20 words each) for each file's specific changes. Each message must accurately describe WHAT WAS CHANGED in that specific file.
+instructions:
+  - '**Focus:** Describe new functionality, features, or significant changes introduced.'
+  - "**Tense:** Use strong past tense action verbs (e.g., 'Implemented', 'Added', 'Created', 'Refactored', 'Fixed', 'Optimized') at the start of the message."
+  - "**Purpose/Value:** Clearly articulate the 'why' behind the change and its benefit to the system or users."
+  - '**Specificity:** Be highly specific. Avoid generic or vague statements. Detail the exact functionality or change.'
+  - "**Prefixes:** DO NOT include conventional prefixes (e.g., 'feat:', 'fix:', 'chore:')."
+  - '**Length:** Strictly adhere to the 3 to 20-word limit.'
+  - '**Output Format:** Provide the response in JSON, following the specified structure.'
+  - '**Analysis:** Thoroughly analyze the provided \`code_diffs\` to infer the core functional changes.'
+  - '**Individual Focus:** Generate UNIQUE messages for each file based on its specific changes. Do not reuse the same message for different files.'
+examples:
+  good_commit_messages:
+    - message: Implemented Zod validation for type-safe configuration
+      rationale: More concise, removed 'management' without losing meaning.
+    - message: Added ts-pattern utilities for error handling and file type detection
+      rationale: Removed 'robust' for brevity, retaining core functionality.
+    - message: Created centralized validation with comprehensive type definitions
+      rationale: Removed 'system' as it's implied by 'centralized validation'.
+    - message: Integrated tsup build configuration for optimized bundles
+      rationale: Shortened 'bundle generation' to 'bundles' for conciseness.
+    - message: Built pattern matching for commit message classification
+      rationale: Removed 'utilities' as 'pattern matching' implies the feature itself.
+  bad_commit_messages:
+    - message: Major updates to validation.ts (+279/-0 lines)
+      reason_for_badness: Focuses on metrics (line changes) rather than functional impact. Lacks 'what' and 'why'.
+    - message: Improved code quality and maintainability
+      reason_for_badness: Generic statement of intent, not a description of concrete functional changes or features.
+    - message: Enhanced data processing capabilities
+      reason_for_badness: Lacks details on *how* or *what* was enhanced. Too abstract.
+    - message: Added 15 new functions and 3 classes
+      reason_for_badness: Focuses on quantity of code elements, not the functional purpose or value they provide.
+    - message: Implemented a new system for the purpose of managing user authentication
+      reason_for_badness: Contains filler words like 'a new system for the purpose of' and 'managing'. Can be much more concise.
+input_files:
+${sanitizedDiffs.map((diff, index) => `  - id: ${index + 1}
+    name: ${diff.file}
+    status: ${diff.isNew ? 'new file created' : diff.isDeleted ? 'file deleted' : diff.isRenamed ? 'file renamed' : 'modified'}
+    changes: ${(diff.changes?.substring(0, UI_CONSTANTS.DIFF_CONTENT_TRUNCATE_LIMIT) || '').replace(/\n/g, '\\n')}
+    truncated: ${diff.changes && diff.changes.length > UI_CONSTANTS.DIFF_CONTENT_TRUNCATE_LIMIT}
+    additions: ${diff.additions}
+    deletions: ${diff.deletions}
+    sanitized: ${diff.sanitized}`).join('\n')}
+output_format_instructions:
+  description: The output must be a JSON object containing suggested commit messages. Confidence scores (0-1) indicate the model's certainty.
+  structure:
+${diffs.length === 1 ? `    schema:
+      suggestions:
+        - message: string (3-20 words, concise functional summary)
+          confidence: number (0-1, likelihood of message accuracy)` : `    schema:
+      files:
+        filename1.ts:
+          message: string (3-20 words, concise functional summary for filename1)
+          confidence: number (0-1, likelihood of message accuracy)
+        filename2.js:
+          message: string (3-20 words, concise functional summary for filename2)
+          confidence: number (0-1, likelihood of message accuracy)`}
+  example:
+${diffs.length === 1 ? `    suggestions:
+      - message: Implemented user authentication system
+        confidence: 0.9` : `    files:
+      auth.ts:
+        message: Implemented user authentication system
+        confidence: 0.9
+      user.js:
+        message: Added user profile management features
+        confidence: 0.8`}`;
 
     return {
-      prompt: JSON.stringify(promptData, null, 2),
+      prompt: promptData,
       sanitizedDiffs,
     };
   };
