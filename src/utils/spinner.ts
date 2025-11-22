@@ -1,6 +1,3 @@
-// Lightweight spinner utility as ora alternative
-// Much smaller footprint while maintaining essential functionality
-
 import { lightColors } from './colors.js';
 
 export interface SpinnerOptions {
@@ -22,10 +19,7 @@ export class LightSpinner {
   private timer?: ReturnType<typeof setTimeout>;
   private lastLength = 0;
 
-  // Default spinner frames (dots style for universal compatibility)
   private static readonly DEFAULT_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-  // Fallback frames for environments with limited Unicode support
   private static readonly FALLBACK_FRAMES = ['|', '/', '-', '\\'];
 
   constructor(options: SpinnerOptions | string = {}) {
@@ -38,7 +32,6 @@ export class LightSpinner {
     this.interval = options.interval ?? 80;
     this.stream = options.stream ?? process.stderr;
 
-    // Use fallback frames in CI or non-TTY environments
     const useUnicode = process.stdout.isTTY && !process.env.CI;
     this.frames = options.frames ?? (useUnicode ? LightSpinner.DEFAULT_FRAMES : LightSpinner.FALLBACK_FRAMES);
   }
@@ -52,7 +45,6 @@ export class LightSpinner {
       return this;
     }
 
-    // Don't show spinner in non-TTY environments
     if (!this.stream.isTTY) {
       if (this.text) {
         this.stream.write(`${this.text  }\n`);
@@ -63,7 +55,6 @@ export class LightSpinner {
     this.isSpinning = true;
     this.currentFrame = 0;
 
-    // Hide cursor
     this.stream.write('\u001B[?25l');
 
     this.render();
@@ -86,10 +77,9 @@ export class LightSpinner {
       this.timer = undefined;
     }
 
-    // Clear current line and show cursor
     if (this.stream.isTTY) {
       this.clear();
-      this.stream.write('\u001B[?25h'); // Show cursor
+      this.stream.write('\u001B[?25h');
     }
 
     return this;
@@ -139,7 +129,6 @@ export class LightSpinner {
     this.frames = frames;
   }
 
-  // Update text while spinning
   set message(text: string) {
     this.text = text;
   }
@@ -158,20 +147,15 @@ export class LightSpinner {
     const colorFn = (typeof lightColors[colorKey] === 'function' ? lightColors[colorKey] : lightColors.cyan) as (text: string) => string;
     const line = `${colorFn(frame)} ${this.text}`;
 
-    // Clear previous line
     this.clear();
-
-    // Write new line
     this.stream.write(line);
     this.lastLength = this.stripAnsi(line).length;
 
-    // Advance frame
     this.currentFrame = (this.currentFrame + 1) % this.frames.length;
   }
 
   private clear(): void {
     if (this.lastLength > 0) {
-      // Move cursor to beginning of line and clear it
       this.stream.write(`\r${  ' '.repeat(this.lastLength)  }\r`);
     }
   }
@@ -182,10 +166,8 @@ export class LightSpinner {
   }
 }
 
-// Factory function for ora-compatible API
 export const lightSpinner = (options?: SpinnerOptions | string): LightSpinner => {
   return new LightSpinner(options);
 };
 
-// Export for ora compatibility
 export default lightSpinner;

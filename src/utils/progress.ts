@@ -88,7 +88,7 @@ export class ProgressTracker {
     const line = this.buildProgressLine(message);
 
     // Clear line and write progress
-    process.stdout.write('\r\x1b[K' + line);
+    process.stdout.write(`\r\x1b[K${line}`);
   }
 
   private buildProgressLine(message?: string): string {
@@ -98,7 +98,7 @@ export class ProgressTracker {
     let line = '';
 
     // Title
-    line += lightColors.cyan(this.title) + ' ';
+    line += `${lightColors.cyan(this.title)} `;
 
     // Progress bar
     if (this.format === 'bar') {

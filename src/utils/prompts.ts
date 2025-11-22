@@ -162,7 +162,6 @@ export class LightPrompts {
 
   private async listPrompt(rl: any, options: ListOptions): Promise<any> {
     const choices = options.choices;
-    const pageSize = options.pageSize || 10;
 
     // Display choices
     console.log(`${lightColors.cyan('?')  } ${  options.message}`);
@@ -223,9 +222,7 @@ export class LightPrompts {
   }
 }
 
-// Create singleton instance
 const lightPrompts = new LightPrompts();
 
-// Export for inquirer compatibility
 export const prompt = lightPrompts.prompt.bind(lightPrompts);
 export default { prompt };

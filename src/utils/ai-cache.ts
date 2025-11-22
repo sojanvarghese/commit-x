@@ -28,8 +28,8 @@ export class PersistentAICache implements AICache {
   private readonly cacheDir: string;
   private readonly maxAge: number = 7 * 24 * 60 * 60 * 1000; // 7 days
   private readonly version: string = '1.0';
-  private memoryCache = new Map<string, CacheEntry>();
-  private stats = { hits: 0, misses: 0 };
+  private readonly memoryCache = new Map<string, CacheEntry>();
+  private readonly stats = { hits: 0, misses: 0 };
 
   constructor() {
     this.cacheDir = join(homedir(), '.commitx', 'cache');
@@ -38,9 +38,7 @@ export class PersistentAICache implements AICache {
   private async ensureCacheDir(): Promise<void> {
     try {
       await mkdir(this.cacheDir, { recursive: true });
-    } catch (error) {
-      // Directory might already exist, ignore error
-    }
+    } catch { /* empty */ }
   }
 
   private getCacheFilePath(key: string): string {
@@ -120,8 +118,7 @@ export class PersistentAICache implements AICache {
 
         this.stats.hits++;
         return suggestions;
-      } catch (error) {
-        // File doesn't exist or is corrupted
+      } catch {
         this.stats.misses++;
         return null;
       }
@@ -193,8 +190,8 @@ export class PersistentAICache implements AICache {
 
 // Request batching and deduplication
 export class RequestBatcher {
-  private pendingRequests = new Map<string, Promise<CommitSuggestion[]>>();
-  private batchTimeout = 50; // 50ms batch window
+  private readonly pendingRequests = new Map<string, Promise<CommitSuggestion[]>>();
+  private readonly batchTimeout = 50; // 50ms batch window
 
   async batch<T>(
     key: string,
