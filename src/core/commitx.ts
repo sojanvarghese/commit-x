@@ -50,7 +50,6 @@ export class CommitX {
         return;
       }
 
-      // Process files with AI for optimal performance
       const processedCount = await this.commitFilesBatch(unstagedFiles, options);
 
       console.log(
@@ -60,7 +59,6 @@ export class CommitX {
           )
       );
 
-      // Force exit to prevent delay from lingering HTTP connections
       if (options.dryRun || processedCount > 0) {
         exitProcess(0);
       }
@@ -107,7 +105,6 @@ ${lightColors.white(`"${commitMessage}"`)}`);
     await this.gitService.commit(commitMessage);
     commitSpinner.succeed(`Committed: ${lightColors.green(commitMessage)}`);
 
-    // Force exit to prevent delay from lingering HTTP connections
     exitProcess(0);
   };
 
@@ -118,7 +115,6 @@ ${lightColors.white(`"${commitMessage}"`)}`);
     const spinner = lightSpinner('Analyzing files for intelligent grouping...').start();
 
     try {
-      // Collect all file diffs for AI grouping analysis
       const allDiffs: GitDiff[] = [];
       const skippedFiles: string[] = [];
 
@@ -147,7 +143,6 @@ ${lightColors.white(`"${commitMessage}"`)}`);
 
       spinner.message = 'Using AI to group related changes...';
 
-      // Use AI to determine optimal grouping
       const aggregatedResult = await this.getAIService().generateAggregatedCommits(allDiffs);
 
       if (aggregatedResult.groups.length === 0) {
@@ -159,7 +154,6 @@ ${lightColors.white(`"${commitMessage}"`)}`);
         `AI grouped ${allDiffs.length} files into ${aggregatedResult.groups.length} logical commits`
       );
 
-      // Process each commit group
       let processedCount = 0;
       for (const group of aggregatedResult.groups) {
         try {
@@ -176,16 +170,14 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
             processedFilesInGroup = group.files.length;
           } else {
             const commitSpinner = lightSpinner(`Committing ${groupName}...`).start();
-
-            // Stage all files in the group
             const stagedFiles: string[] = [];
+
             for (const file of group.files) {
               try {
                 await this.gitService.stageFile(file);
                 stagedFiles.push(file);
               } catch (error) {
                 console.warn(lightColors.yellow(`  ⚠️  Failed to stage ${file}: ${error}`));
-                // Continue with other files in the group
               }
             }
 
@@ -194,15 +186,13 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
               continue;
             }
 
-            // Wait for Git to release any lock files naturally
             await this.gitService.waitForLockRelease();
-
-            // Commit the group
             await this.gitService.commit(group.message);
 
             const actualGroupName = stagedFiles.length > 1
               ? `${stagedFiles.length} files`
               : this.getFileName(stagedFiles[0]);
+
             commitSpinner.succeed(`✅ ${actualGroupName}: ${group.message}`);
             processedFilesInGroup = stagedFiles.length;
           }
@@ -259,15 +249,28 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
         return '';
       }
 
-      spinner.message = 'Generating commit messages...';
+      spinner.message = 'Using AI to group related changes...';
+      const aggregatedResult = await this.getAIService().generateAggregatedCommits(diffs);
 
-      const suggestions = await this.getAIService().generateCommitMessage(diffs);
+      if (aggregatedResult.groups.length === 0) {
+        spinner.fail('AI grouping returned no commit groups');
+        return '';
+      }
 
-      spinner.succeed(`Generated ${suggestions.length} commit message suggestions`);
+      const group = aggregatedResult.groups[0];
+      const commitMessage = group.message;
+
+      spinner.succeed(`Generated commit message for ${group.files.length} file(s)`);
 
       if (!interactive || !process.stdin.isTTY) {
-        return suggestions[0]?.message || '';
+        return commitMessage;
       }
+
+      const suggestions = [{
+        message: commitMessage,
+        description: group.description,
+        confidence: group.confidence || 0.7
+      }];
 
       return await this.promptCommitSelection(suggestions);
     } catch (error) {
