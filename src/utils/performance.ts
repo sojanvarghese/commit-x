@@ -1,6 +1,6 @@
 // Performance monitoring and optimization utilities
 
-import { PERFORMANCE_FLAGS } from "../constants/performance";
+import { PERFORMANCE_FLAGS } from "../constants/performance.js";
 
 export class PerformanceMonitor {
   private static instance: PerformanceMonitor;
