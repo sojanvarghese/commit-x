@@ -65,34 +65,6 @@ declare module 'simple-git' {
   export default function simpleGit(): SimpleGit;
 }
 
-declare module 'chalk' {
-  interface Chalk {
-    red(text: string): string;
-    green(text: string): string;
-    yellow(text: string): string;
-    blue(text: string): string;
-    cyan(text: string): string;
-    gray(text: string): string;
-    grey(text: string): string;
-    white(text: string): string;
-    bold(text: string): string;
-  }
-
-  const chalk: Chalk;
-  export default chalk;
-}
-
-declare module 'ora' {
-  interface Ora {
-    start(): Ora;
-    succeed(text?: string): Ora;
-    fail(text?: string): Ora;
-    text: string;
-  }
-
-  export default function ora(text?: string): Ora;
-}
-
 declare module 'commander' {
   export class Command {
     name(name: string): this;
@@ -106,18 +78,4 @@ declare module 'commander' {
     on(event: string, callback: (...args: any[]) => void): this;
     args: string[];
   }
-}
-
-declare module 'inquirer' {
-  interface Question {
-    type: string;
-    name: string;
-    message: string;
-    choices?: Array<{ name: string; value: any; short?: string }>;
-    default?: any;
-    validate?: (input: any) => boolean | string;
-    pageSize?: number;
-  }
-
-  export function prompt(questions: Question[]): Promise<any>;
 }
