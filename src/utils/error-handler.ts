@@ -1,4 +1,4 @@
-import chalk from 'chalk';
+import { lightColors } from './colors.js';
 import { match } from 'ts-pattern';
 import { sanitizeError } from './security.js';
 import {
@@ -153,31 +153,31 @@ export class ErrorHandler {
     console.error(color(`❌ ${error.userMessage}`));
 
     if (error.context.operation) {
-      console.error(chalk.gray(`   Operation: ${error.context.operation}`));
+      console.error(lightColors.gray(`   Operation: ${error.context.operation}`));
     }
 
     if (error.context.file) {
-      console.error(chalk.gray(`   File: ${error.context.file}`));
+      console.error(lightColors.gray(`   File: ${error.context.file}`));
     }
 
     if (error.isRecoverable) {
-      console.error(chalk.yellow('   💡 This error might be recoverable. Please try again.'));
+      console.error(lightColors.yellow('   💡 This error might be recoverable. Please try again.'));
     }
   };
 
   private readonly getErrorColor = (type: ErrorType): ((text: string) => string) => {
     return match(type)
-      .with(ErrorType.SECURITY_ERROR, () => chalk.red)
-      .with(ErrorType.VALIDATION_ERROR, ErrorType.CONFIG_ERROR, () => chalk.yellow)
+      .with(ErrorType.SECURITY_ERROR, () => lightColors.red)
+      .with(ErrorType.VALIDATION_ERROR, ErrorType.CONFIG_ERROR, () => lightColors.yellow)
       .with(
         ErrorType.NETWORK_ERROR,
         ErrorType.TIMEOUT_ERROR,
         ErrorType.AI_SERVICE_ERROR,
-        () => chalk.blue
+        () => lightColors.blue
       )
-      .with(ErrorType.FILE_SYSTEM_ERROR, () => chalk.cyan)
-      .with(ErrorType.GIT_ERROR, () => chalk.green)
-      .otherwise(() => chalk.red);
+      .with(ErrorType.FILE_SYSTEM_ERROR, () => lightColors.cyan)
+      .with(ErrorType.GIT_ERROR, () => lightColors.green)
+      .otherwise(() => lightColors.red);
   };
 
   public getErrorStats = (): { total: number; byType: Record<string, number>; recent: number } => {
@@ -200,7 +200,7 @@ export class ErrorHandler {
 
   public handleProcessExit = (code: number = 1): void => {
     if (this.errorLog.length > 0) {
-      console.error(chalk.gray(`\n📊 Error Summary: ${this.errorLog.length} errors logged`));
+      console.error(lightColors.gray(`\n📊 Error Summary: ${this.errorLog.length} errors logged`));
     }
     process.exit(code);
   };
@@ -263,7 +263,7 @@ export const withRetry = async <T>(
       }
 
       const delay = baseDelay * Math.pow(2, attempt - 1);
-      console.log(chalk.yellow(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`));
+      console.log(lightColors.yellow(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`));
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
