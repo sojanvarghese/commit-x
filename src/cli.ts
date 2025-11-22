@@ -8,7 +8,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import process from 'process';
-import chalk from 'chalk';
+import { lightColors } from './utils/colors.js';
 import { lazyModules, preloadCriticalModules } from './utils/lazy-loader.js';
 import { PERFORMANCE_FLAGS } from './constants/performance.js';
 
@@ -76,12 +76,12 @@ program
         async (): Promise<void> => {
           // Validate command combinations
           if (options.interactive && !options.all) {
-            console.error(chalk.red('❌ Error: --interactive option can only be used with --all flag'));
-            console.log(`${chalk.yellow('\n💡 Correct usage:')}
-${chalk.blue('  cx commit --all --interactive    # Interactive traditional workflow')}
-${chalk.blue('  cx commit --all                  # Non-interactive traditional workflow')}
-${chalk.blue('  cx commit                        # AI-powered intelligent grouping (default)')}
-${chalk.blue('  cx commit --help                 # Show all options')}`);
+            console.error(lightColors.red('❌ Error: --interactive option can only be used with --all flag'));
+            console.log(`${lightColors.yellow('\n💡 Correct usage:')}
+${lightColors.blue('  cx commit --all --interactive    # Interactive traditional workflow')}
+${lightColors.blue('  cx commit --all                  # Non-interactive traditional workflow')}
+${lightColors.blue('  cx commit                        # AI-powered intelligent grouping (default)')}
+${lightColors.blue('  cx commit --help                 # Show all options')}`);
             process.exit(1);
           }
 
@@ -191,7 +191,7 @@ configCmd
         const parsedValue = parseConfigValue(value);
 
         await config.set(key as keyof typeof config.getConfig, parsedValue);
-        console.log(chalk.green(`✅ Set ${key} = ${parsedValue}`));
+        console.log(lightColors.green(`✅ Set ${key} = ${parsedValue}`));
       },
       { operation: 'configSet', key }
     );
@@ -230,7 +230,7 @@ configCmd
           const allConfig = config.getConfig();
           const apiKey = config.getApiKey();
 
-          console.log(chalk.blue('Current configuration:'));
+          console.log(lightColors.blue('Current configuration:'));
           for (const [k, v] of Object.entries(allConfig)) {
             const isSensitive = k === 'apiKey';
             const displayValue = isSensitive ? '********' : v;
@@ -264,9 +264,9 @@ configCmd
         const { ConfigManager } = await lazyModules.config();
         const config = ConfigManager.getInstance();
         config.reset();
-        console.log(chalk.green('✅ Configuration reset to defaults'));
+        console.log(lightColors.green('✅ Configuration reset to defaults'));
       } else {
-        console.log(chalk.yellow('Reset cancelled'));
+        console.log(lightColors.yellow('Reset cancelled'));
       }
     } catch (error) {
       const { handleErrorImmediate } = await import('./utils/process-utils.js');
@@ -280,7 +280,7 @@ program
   .description('Interactive setup for first-time users')
   .action(async () => {
     const inquirer = await lazyModules.inquirer();
-    console.log(chalk.blue('🚀 Welcome to Commitron Setup!\n'));
+    console.log(lightColors.blue('🚀 Welcome to Commitron Setup!\n'));
 
     try {
       const { ConfigManager } = await lazyModules.config();
@@ -301,9 +301,9 @@ program
 
       await config.saveConfig(answers);
 
-      console.log(`${chalk.green('\n✅ Setup completed successfully!')}
-${chalk.blue('You can now use "cx" to start making AI-powered commits.')}
-${chalk.gray('Use "cx config" to modify settings later.')}`);
+      console.log(`${lightColors.green('\n✅ Setup completed successfully!')}
+${lightColors.blue('You can now use "cx" to start making AI-powered commits.')}
+${lightColors.gray('Use "cx config" to modify settings later.')}`);
     } catch (error) {
       const { handleErrorImmediate } = await import('./utils/process-utils.js');
       handleErrorImmediate(error, 'Setup failed');
@@ -315,40 +315,40 @@ program
   .command('privacy')
   .description('Show privacy settings and data handling information')
   .action(async (): Promise<void> => {
-    console.log(`${chalk.blue('🔒 Commitron Privacy Information:\n')}
+    console.log(`${lightColors.blue('🔒 Commitron Privacy Information:\n')}
 
-${chalk.yellow('Data Sent to AI:')}
+${lightColors.yellow('Data Sent to AI:')}
   • File paths (sanitized to remove usernames)
   • Code changes (up to 3000 characters per file)
   • File metadata (additions/deletions counts)
   • File status (new/modified/deleted/renamed)
 
-${chalk.yellow('Data NOT Sent to AI:')}
+${lightColors.yellow('Data NOT Sent to AI:')}
   • API keys or authentication tokens
   • Personal information (names, emails)
   • System information (OS, hardware)
   • Repository metadata (URLs, branch names)
 
-${chalk.yellow('Privacy Protections:')}
+${lightColors.yellow('Privacy Protections:')}
   • Sensitive files are automatically skipped
   • File paths are sanitized to remove usernames
   • Potential secrets are redacted from content
   • Content is limited to 3000 characters per file
   • Total request size is capped at 100KB
 
-${chalk.yellow('Sensitive File Types (Auto-skipped):')}
+${lightColors.yellow('Sensitive File Types (Auto-skipped):')}
   • .env, .key, .pem, .p12, .pfx, .p8 files
   • Files in secrets/, keys/, credentials/ directories
   • Files containing API keys, passwords, or tokens
 
-${chalk.yellow('Common Warning Types:')}
+${lightColors.yellow('Common Warning Types:')}
   • Potential sensitive data detected
   • Sensitive file pattern detected
   • Potential secrets detected in comments
   • Sensitive file type
   • Located in sensitive directory
 
-${chalk.gray('For more information, visit: https://github.com/sojanvarghese/commitx#privacy')}`);
+${lightColors.gray('For more information, visit: https://github.com/sojanvarghese/commitx#privacy')}`);
   });
 
 // Help command with examples
@@ -359,20 +359,20 @@ program
     const gradientString = await lazyModules.gradientString();
     console.log(`${gradientString.pastel('📚 Commitron Usage Examples:\n')}
 
-${chalk.yellow('Basic usage:')}
+${lightColors.yellow('Basic usage:')}
   cx                             # Process files with AI
   cx commit --dry-run            # Preview commits
   cx commit                      # Direct CLI access
 
-${chalk.yellow('Traditional workflow:')}
+${lightColors.yellow('Traditional workflow:')}
   cx commit --all                # Stage all files and commit together
   cx commit -m "fix: bug"        # Use custom message (traditional)
 
-${chalk.yellow('Status and information:')}
+${lightColors.yellow('Status and information:')}
   cx status                      # Show repository status
   cx diff                        # Show changes summary
 
-${chalk.yellow('Configuration:')}
+${lightColors.yellow('Configuration:')}
   cx setup                       # Interactive setup
   cx config                      # View configuration
   cx config set <key> <value>    # Set configuration values
@@ -385,15 +385,15 @@ program
   .command('debug')
   .description('Debug Git repository detection and environment')
   .action(async (): Promise<void> => {
-    let debugOutput = `${chalk.blue('\n🔍 Commitron Debug Information:\n')}
+    let debugOutput = `${lightColors.blue('\n🔍 Commitron Debug Information:\n')}
 
-${chalk.gray('Environment:')}
+${lightColors.gray('Environment:')}
   Current working directory: ${process.cwd()}
   Node.js version: ${process.version}
   Platform: ${process.platform}
   Architecture: ${process.arch}
 
-${chalk.gray('\nGit repository detection:')}`;
+${lightColors.gray('\nGit repository detection:')}`;
 
     try {
       const security = await lazyModules.security();
@@ -408,7 +408,7 @@ ${chalk.gray('\nGit repository detection:')}`;
       debugOutput += `\n  Error during validation: ${error}`;
     }
 
-    debugOutput += `\n\n${chalk.gray('Git directory structure:')}`;
+    debugOutput += `\n\n${lightColors.gray('Git directory structure:')}`;
     try {
       const fs = await import('fs');
       const path = await import('path');
@@ -444,22 +444,22 @@ program.action(async (): Promise<void> => {
 
 // Error handling for unknown commands
 program.on('command:*', async (): Promise<void> => {
-  console.error(chalk.red(`❌ Unknown command: ${program.args.join(' ')}`));
-  console.log(`${chalk.yellow('\n💡 Available commands:')}
-${chalk.blue('  cx --help              # Show all available commands')}
-${chalk.blue('  cx commit --help       # Show commit command options')}
-${chalk.blue('  cx help-examples       # Show usage examples')}
-${chalk.gray('\nFor more information, visit: https://github.com/sojanvarghese/commitx')}`);
+  console.error(lightColors.red(`❌ Unknown command: ${program.args.join(' ')}`));
+  console.log(`${lightColors.yellow('\n💡 Available commands:')}
+${lightColors.blue('  cx --help              # Show all available commands')}
+${lightColors.blue('  cx commit --help       # Show commit command options')}
+${lightColors.blue('  cx help-examples       # Show usage examples')}
+${lightColors.gray('\nFor more information, visit: https://github.com/sojanvarghese/commitx')}`);
   process.exit(1);
 });
 
 // Error handling for invalid options
 program.on('option:*', async (): Promise<void> => {
-  console.error(chalk.red(`❌ Unknown option: ${program.args.join(' ')}`));
-  console.log(`${chalk.yellow('\n💡 Available options:')}
-${chalk.blue('  cx --help              # Show all available commands')}
-${chalk.blue('  cx commit --help       # Show commit command options')}
-${chalk.gray('\nFor more information, visit: https://github.com/sojanvarghese/commitx')}`);
+  console.error(lightColors.red(`❌ Unknown option: ${program.args.join(' ')}`));
+  console.log(`${lightColors.yellow('\n💡 Available options:')}
+${lightColors.blue('  cx --help              # Show all available commands')}
+${lightColors.blue('  cx commit --help       # Show commit command options')}
+${lightColors.gray('\nFor more information, visit: https://github.com/sojanvarghese/commitx')}`);
   process.exit(1);
 });
 
