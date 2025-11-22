@@ -18,12 +18,9 @@ export interface UserFriendlyError {
   helpUrl?: string;
 }
 
-/**
- * Enhanced error handler with user-friendly messages
- */
 export class EnhancedErrorHandler {
   private static instance: EnhancedErrorHandler;
-  private errorCounts = new Map<string, number>();
+  private readonly errorCounts = new Map<string, number>();
   private readonly maxRetries = 3;
 
   private constructor() {}
@@ -35,45 +32,36 @@ export class EnhancedErrorHandler {
     return EnhancedErrorHandler.instance;
   }
 
-  /**
-   * Convert technical errors into user-friendly messages
-   */
   createUserFriendlyError(error: Error | string, context?: ErrorContext): UserFriendlyError {
     const errorMessage = typeof error === 'string' ? error : error.message;
-    const errorType = this.categorizeError(errorMessage, context);
+    const errorType = this.categorizeError(errorMessage);
 
     return this.getErrorMapping(errorType, errorMessage, context);
   }
 
-  /**
-   * Display user-friendly error with formatting
-   */
   displayError(error: Error | string, context?: ErrorContext): void {
     const friendlyError = this.createUserFriendlyError(error, context);
 
-    console.error('\n' + lightColors.red('❌ ' + friendlyError.title));
+    console.error(`\n${lightColors.red(`❌ ${  friendlyError.title}`)}`);
     console.error(lightColors.gray(friendlyError.message));
 
     if (friendlyError.suggestions.length > 0) {
-      console.error('\n' + lightColors.yellow('💡 Suggestions:'));
+      console.error(`\n${lightColors.yellow('💡 Suggestions:')}`);
       friendlyError.suggestions.forEach((suggestion, index) => {
         console.error(`  ${index + 1}. ${suggestion}`);
       });
     }
 
     if (friendlyError.helpUrl) {
-      console.error('\n' + lightColors.blue(`📖 Learn more: ${friendlyError.helpUrl}`));
+      console.error(`\n${lightColors.blue(`📖 Learn more: ${friendlyError.helpUrl}`)}`);
     }
 
     if (friendlyError.technicalDetails && process.env.DEBUG) {
-      console.error('\n' + lightColors.dim('🔍 Technical Details:'));
+      console.error(`\n${lightColors.dim('🔍 Technical Details:')}`);
       console.error(lightColors.dim(friendlyError.technicalDetails));
     }
   }
 
-  /**
-   * Handle retry logic with user-friendly feedback
-   */
   async handleWithRetry<T>(
     operation: () => Promise<T>,
     context: ErrorContext,
@@ -113,7 +101,7 @@ export class EnhancedErrorHandler {
     throw new Error('Unexpected retry loop completion');
   }
 
-  private categorizeError(errorMessage: string, context?: ErrorContext): string {
+  private categorizeError(errorMessage: string): string {
     const message = errorMessage.toLowerCase();
 
     // Git-related errors

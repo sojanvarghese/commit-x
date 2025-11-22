@@ -6,7 +6,7 @@ import { CommitConfigSchema, ApiKeySchema } from './schemas/validation.js';
 import type { CommitConfig } from './types/common.js';
 import { sanitizeError } from './utils/security.js';
 import { ErrorType } from './types/error-handler.js';
-import { ErrorHandler, withErrorHandling, SecureError } from './utils/error-handler.js';
+import { withErrorHandling, SecureError } from './utils/error-handler.js';
 import {
   CONFIG_DIR as CONFIG_DIR_NAME,
   CONFIG_FILE as CONFIG_FILE_NAME,
@@ -21,10 +21,8 @@ const CONFIG_FILE = path.join(CONFIG_DIR, CONFIG_FILE_NAME);
 export class ConfigManager {
   private static instance: ConfigManager;
   private config: CommitConfig;
-  private readonly errorHandler: ErrorHandler;
 
   private constructor() {
-    this.errorHandler = ErrorHandler.getInstance();
     this.config = this.loadConfig();
   }
 

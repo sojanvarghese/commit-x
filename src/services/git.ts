@@ -8,7 +8,7 @@ import {
   validateCommitMessage,
 } from '../utils/security.js';
 import { ErrorType } from '../types/error-handler.js';
-import { ErrorHandler, withErrorHandling, SecureError } from '../utils/error-handler.js';
+import { withErrorHandling, SecureError } from '../utils/error-handler.js';
 import { calculateGitTimeout } from '../utils/timeout.js';
 import { ERROR_MESSAGES } from '../constants/messages.js';
 import { UI_CONSTANTS } from '../constants/ui.js';
@@ -21,14 +21,12 @@ interface GitCache {
 
 export class GitService {
   private readonly git: SimpleGit;
-  private readonly errorHandler: ErrorHandler;
   private repositoryPath: string;
   private cache: GitCache = {};
   private readonly CACHE_TTL_MS = 5000; // 5 seconds cache TTL
 
   constructor() {
     this.git = simpleGit();
-    this.errorHandler = ErrorHandler.getInstance();
     this.repositoryPath = process.cwd();
   }
 
@@ -41,12 +39,10 @@ export class GitService {
     this.cache = {};
   }
 
-  // Initialize the repository path by finding the actual git root
   private async initializeRepositoryPath(): Promise<void> {
     const validation = await validateGitRepository(this.repositoryPath);
     if (validation.isValid && validation.sanitizedValue) {
       this.repositoryPath = validation.sanitizedValue;
-      // Change working directory to the git repository root
       process.chdir(this.repositoryPath);
     }
   }
@@ -54,12 +50,10 @@ export class GitService {
   isGitRepository = async (): Promise<boolean> => {
     return withErrorHandling(
       async () => {
-        // Initialize repository path to find the actual git root
         await this.initializeRepositoryPath();
 
         const validation = await validateGitRepository(this.repositoryPath);
         if (!validation.isValid) {
-          // Provide more detailed error information
           const errorMessage = `Git repository validation failed for path: ${this.repositoryPath}\nError: ${validation.error}`;
           throw new SecureError(
             errorMessage,
@@ -77,17 +71,14 @@ export class GitService {
   getStatus = async (): Promise<GitStatus> => {
     return withErrorHandling(
       async () => {
-        // Check cache first
         if (this.isCacheValid(this.cache.status)) {
           return this.cache.status.data;
         }
 
         const status = await withTimeout(this.git.status(), calculateGitTimeout({}));
-
         const staged = this.validateFilePaths(status.staged);
         const unstaged = this.validateFilePaths(status.modified);
         const untracked = this.validateFilePaths(status.not_added);
-
         const result = {
           staged,
           unstaged,
@@ -95,7 +86,6 @@ export class GitService {
           total: staged.length + unstaged.length + untracked.length,
         };
 
-        // Cache the result
         this.cache.status = { data: result, timestamp: Date.now() };
 
         return result;
@@ -146,8 +136,6 @@ export class GitService {
 
         const validatedFile = pathValidation.sanitizedValue;
         const status = await withTimeout(this.git.status(), calculateGitTimeout({}));
-
-        // Convert absolute path to relative path for comparison with git status
         const relativeFile = file.startsWith(this.repositoryPath)
           ? file.substring(this.repositoryPath.length + 1)
           : file;
@@ -171,7 +159,6 @@ export class GitService {
           const isUntracked = status.not_added.includes(relativeFile);
 
           if (isUntracked && !staged) {
-            // For untracked files, read the file content directly
             const { readFile } = await import('fs/promises');
             const fileContent = await readFile(validatedFile, 'utf-8');
             const lines = fileContent.split('\n').length;
