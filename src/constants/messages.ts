@@ -3,10 +3,6 @@ export const ERROR_MESSAGES = {
   API_KEY_NOT_FOUND:
     'Gemini API key not found. Please set GEMINI_API_KEY environment variable or configure it with "commit-x config set apiKey YOUR_API_KEY"',
   NO_STAGED_CHANGES: 'No staged changes found. Please stage your changes with "git add" first.',
-  NO_DIFFS_PROVIDED: 'No diffs provided for commit message generation',
-  NO_VALID_DIFFS: 'No valid diffs found for commit message generation',
-  NO_DIFFS_BATCH: 'No diffs provided for batch commit message generation',
-  NO_VALID_DIFFS_BATCH: 'No valid diffs found for batch commit message generation',
   NO_STAGED_CHANGES_DIFF: 'No staged changes found.',
   NO_VALID_FILES: 'No valid files to stage',
   INVALID_COMMIT_MESSAGE: 'Commit message cannot be empty',
@@ -16,9 +12,7 @@ export const ERROR_MESSAGES = {
   PROMPT_SIZE_EXCEEDED: 'Prompt size exceeds limit of',
   DIFF_TOO_LARGE: 'Diff too large for',
   JSON_NOT_FOUND: 'No JSON found in response',
-  INVALID_BATCH_RESPONSE: 'Invalid batch response format',
   FAILED_PARSE_JSON: 'Failed to parse JSON response, falling back to text parsing',
-  FAILED_PARSE_BATCH_JSON: 'Failed to parse batch JSON response, using fallbacks',
 } as const;
 
 export const SUCCESS_MESSAGES = {
@@ -76,12 +70,4 @@ export const HELP_MESSAGES = {
   USAGE_COMMANDS: 'Use "commit-x --help" for available commands',
   CONFIG_MODIFY: 'Use "commit-x config" to modify settings later.',
   COMMIT_X_USAGE: 'You can now use "commit-x" or "cx" to start making AI-powered commits.',
-} as const;
-
-export const COMMIT_MESSAGES = {
-  FALLBACK_IMPLEMENT: 'Implement code changes',
-  FALLBACK_DESCRIPTION: 'Generated fallback commit message for code implementation',
-  CUSTOM_MESSAGE: '✏️  Write custom message',
-  SKIP_FILE: '⏭️  Skip this file',
-  CANCEL: '❌ Cancel',
 } as const;
