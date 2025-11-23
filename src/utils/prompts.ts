@@ -1,8 +1,8 @@
 // Lightweight prompts utility as inquirer alternative
 // Focused on the essential functionality needed by commit-x
 
-import { createInterface } from 'readline';
-import { lightColors } from './colors.js';
+import { createInterface } from "readline";
+import { lightColors } from "./colors.js";
 
 export interface BasePromptOptions {
   message: string;
@@ -11,17 +11,17 @@ export interface BasePromptOptions {
 }
 
 export interface ConfirmOptions extends BasePromptOptions {
-  type: 'confirm';
+  type: "confirm";
   default?: boolean;
 }
 
 export interface InputOptions extends BasePromptOptions {
-  type: 'input';
+  type: "input";
   default?: string;
 }
 
 export interface ListOptions extends BasePromptOptions {
-  type: 'list';
+  type: "list";
   choices: Array<{ name: string; value: any; short?: string }>;
   pageSize?: number;
 }
@@ -40,7 +40,7 @@ export class LightPrompts {
       this.rl = createInterface({
         input: process.stdin,
         output: process.stdout,
-        terminal: true
+        terminal: true,
       });
     }
     return this.rl;
@@ -62,17 +62,19 @@ export class LightPrompts {
         let result: any;
 
         switch (options.type) {
-          case 'confirm':
+          case "confirm":
             result = await this.confirmPrompt(rl, options);
             break;
-          case 'input':
+          case "input":
             result = await this.inputPrompt(rl, options);
             break;
-          case 'list':
+          case "list":
             result = await this.listPrompt(rl, options);
             break;
           default:
-            throw new Error(`Unsupported prompt type: ${(options as any).type}`);
+            throw new Error(
+              `Unsupported prompt type: ${(options as any).type}`
+            );
         }
 
         results[name] = result;
@@ -84,10 +86,13 @@ export class LightPrompts {
     }
   }
 
-  private async confirmPrompt(rl: any, options: ConfirmOptions): Promise<boolean> {
+  private async confirmPrompt(
+    rl: any,
+    options: ConfirmOptions
+  ): Promise<boolean> {
     const defaultValue = options.default ?? false;
-    const suffix = defaultValue ? ' (Y/n)' : ' (y/N)';
-    const message = `${lightColors.cyan('?')  } ${  options.message  }${suffix  } `;
+    const suffix = defaultValue ? " (Y/n)" : " (y/N)";
+    const message = `${lightColors.cyan("?")} ${options.message}${suffix} `;
 
     return new Promise((resolve, reject) => {
       const askQuestion = () => {
@@ -95,14 +100,14 @@ export class LightPrompts {
           const trimmed = answer.trim().toLowerCase();
 
           let result: boolean;
-          if (trimmed === '') {
+          if (trimmed === "") {
             result = defaultValue;
-          } else if (trimmed === 'y' || trimmed === 'yes') {
+          } else if (trimmed === "y" || trimmed === "yes") {
             result = true;
-          } else if (trimmed === 'n' || trimmed === 'no') {
+          } else if (trimmed === "n" || trimmed === "no") {
             result = false;
           } else {
-            console.log(lightColors.red('Please answer with y/yes or n/no.'));
+            console.log(lightColors.red("Please answer with y/yes or n/no."));
             askQuestion();
             return;
           }
@@ -111,7 +116,13 @@ export class LightPrompts {
             try {
               const validation = await options.validate(result);
               if (validation !== true) {
-                console.log(lightColors.red(typeof validation === 'string' ? validation : 'Invalid input'));
+                console.log(
+                  lightColors.red(
+                    typeof validation === "string"
+                      ? validation
+                      : "Invalid input"
+                  )
+                );
                 askQuestion();
                 return;
               }
@@ -130,19 +141,25 @@ export class LightPrompts {
   }
 
   private async inputPrompt(rl: any, options: InputOptions): Promise<string> {
-    const defaultSuffix = options.default ? ` (${options.default})` : '';
-    const message = `${lightColors.cyan('?')  } ${  options.message  }${defaultSuffix  } `;
+    const defaultSuffix = options.default ? ` (${options.default})` : "";
+    const message = `${lightColors.cyan("?")} ${options.message}${defaultSuffix} `;
 
     return new Promise((resolve, reject) => {
       const askQuestion = () => {
         rl.question(message, async (answer: string) => {
-          const result = answer.trim() || options.default || '';
+          const result = answer.trim() || options.default || "";
 
           if (options.validate) {
             try {
               const validation = await options.validate(result);
               if (validation !== true) {
-                console.log(lightColors.red(typeof validation === 'string' ? validation : 'Invalid input'));
+                console.log(
+                  lightColors.red(
+                    typeof validation === "string"
+                      ? validation
+                      : "Invalid input"
+                  )
+                );
                 askQuestion();
                 return;
               }
@@ -164,12 +181,12 @@ export class LightPrompts {
     const choices = options.choices;
 
     // Display choices
-    console.log(`${lightColors.cyan('?')  } ${  options.message}`);
+    console.log(`${lightColors.cyan("?")} ${options.message}`);
     choices.forEach((choice, index) => {
       console.log(`  ${lightColors.dim(`${index + 1})`)} ${choice.name}`);
     });
 
-    const message = `${lightColors.cyan('  Answer:')  } `;
+    const message = `${lightColors.cyan("  Answer:")} `;
 
     return new Promise((resolve, reject) => {
       const askQuestion = () => {
@@ -183,15 +200,20 @@ export class LightPrompts {
             selectedIndex = num - 1;
           } else {
             // Try to find by name
-            const foundIndex = choices.findIndex(choice =>
-              choice.name.toLowerCase() === trimmed.toLowerCase() ||
-              choice.short?.toLowerCase() === trimmed.toLowerCase()
+            const foundIndex = choices.findIndex(
+              choice =>
+                choice.name.toLowerCase() === trimmed.toLowerCase() ||
+                choice.short?.toLowerCase() === trimmed.toLowerCase()
             );
 
             if (foundIndex !== -1) {
               selectedIndex = foundIndex;
             } else {
-              console.log(lightColors.red(`Please choose a number between 1-${choices.length} or enter the choice name.`));
+              console.log(
+                lightColors.red(
+                  `Please choose a number between 1-${choices.length} or enter the choice name.`
+                )
+              );
               askQuestion();
               return;
             }
@@ -203,7 +225,13 @@ export class LightPrompts {
             try {
               const validation = await options.validate(selected.value);
               if (validation !== true) {
-                console.log(lightColors.red(typeof validation === 'string' ? validation : 'Invalid selection'));
+                console.log(
+                  lightColors.red(
+                    typeof validation === "string"
+                      ? validation
+                      : "Invalid selection"
+                  )
+                );
                 askQuestion();
                 return;
               }

@@ -11,28 +11,28 @@ export const UI_CONSTANTS = {
   CONFIDENCE_DEFAULT: 0.8,
   CONFIDENCE_FALLBACK: 0.3,
   FILE_STATUS: {
-    NEW: '[NEW]',
-    DELETED: '[DELETED]',
-    RENAMED: '[RENAMED]',
-    MODIFIED: '[MODIFIED]',
+    NEW: "[NEW]",
+    DELETED: "[DELETED]",
+    RENAMED: "[RENAMED]",
+    MODIFIED: "[MODIFIED]",
   },
   GIT_STATUS: {
-    STAGED: 'A',
-    MODIFIED: 'M',
-    UNTRACKED: '??',
+    STAGED: "A",
+    MODIFIED: "M",
+    UNTRACKED: "??",
   },
   SPINNER_MESSAGES: {
-    STAGING: 'Staging files...',
-    COMMITTING: 'Creating commit...',
-    ANALYZING: 'Analyzing files...',
-    GENERATING_AI: 'Generating commit messages for',
-    GENERATING_MESSAGE: 'Generating commit message...',
-    ANALYZING_CHANGES: 'Analyzing changes...',
+    STAGING: "Staging files...",
+    COMMITTING: "Creating commit...",
+    ANALYZING: "Analyzing files...",
+    GENERATING_AI: "Generating commit messages for",
+    GENERATING_MESSAGE: "Generating commit message...",
+    ANALYZING_CHANGES: "Analyzing changes...",
   },
 } as const;
 
 export const COMMIT_MESSAGE_PATTERNS = {
-  AVOID_PREFIXES: ['feat:', 'fix:', 'chore:'],
+  AVOID_PREFIXES: ["feat:", "fix:", "chore:"],
   NUMBERED_PATTERN: /^\d+\./,
   JSON_PATTERN: /\{[\s\S]*\}/,
 } as const;

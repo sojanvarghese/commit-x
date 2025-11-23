@@ -1,10 +1,10 @@
-import { readFile, writeFile, mkdir, stat } from 'fs/promises';
-import { join } from 'path';
-import { homedir } from 'os';
-import { createHash } from 'crypto';
-import { gzip, gunzip } from 'zlib';
-import { promisify } from 'util';
-import type { CommitSuggestion, GitDiff } from '../types/common.js';
+import { readFile, writeFile, mkdir, stat } from "fs/promises";
+import { join } from "path";
+import { homedir } from "os";
+import { createHash } from "crypto";
+import { gzip, gunzip } from "zlib";
+import { promisify } from "util";
+import type { CommitSuggestion, GitDiff } from "../types/common.js";
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -27,18 +27,20 @@ export interface AICache {
 export class PersistentAICache implements AICache {
   private readonly cacheDir: string;
   private readonly maxAge: number = 7 * 24 * 60 * 60 * 1000; // 7 days
-  private readonly version: string = '1.0';
+  private readonly version: string = "1.0";
   private readonly memoryCache = new Map<string, CacheEntry>();
   private readonly stats = { hits: 0, misses: 0 };
 
   constructor() {
-    this.cacheDir = join(homedir(), '.commitx', 'cache');
+    this.cacheDir = join(homedir(), ".commitx", "cache");
   }
 
   private async ensureCacheDir(): Promise<void> {
     try {
       await mkdir(this.cacheDir, { recursive: true });
-    } catch { /* empty */ }
+    } catch {
+      /* empty */
+    }
   }
 
   private getCacheFilePath(key: string): string {
@@ -50,31 +52,34 @@ export class PersistentAICache implements AICache {
     // - File paths and their relative importance
     // - Change patterns (additions/deletions ratio)
     // - Content similarity hash
-    const keyComponents = diffs.map(diff => {
-      const contentHash = this.hashContent(diff.changes || '');
-      const ratio = diff.additions + diff.deletions > 0
-        ? diff.additions / (diff.additions + diff.deletions)
-        : 0;
+    const keyComponents = diffs
+      .map(diff => {
+        const contentHash = this.hashContent(diff.changes || "");
+        const ratio =
+          diff.additions + diff.deletions > 0
+            ? diff.additions / (diff.additions + diff.deletions)
+            : 0;
 
-      return `${diff.file}:${diff.additions}:${diff.deletions}:${ratio.toFixed(2)}:${contentHash}`;
-    }).sort(); // Sort for consistent keys regardless of diff order
+        return `${diff.file}:${diff.additions}:${diff.deletions}:${ratio.toFixed(2)}:${contentHash}`;
+      })
+      .sort(); // Sort for consistent keys regardless of diff order
 
-    return createHash('sha256')
-      .update(keyComponents.join('|'))
-      .digest('hex')
+    return createHash("sha256")
+      .update(keyComponents.join("|"))
+      .digest("hex")
       .substring(0, 16); // Use shorter hash for filesystem compatibility
   }
 
   private hashContent(content: string): string {
     // Hash significant parts of content, ignoring whitespace variations
     const normalized = content
-      .replace(/\s+/g, ' ')
-      .replace(/^\s+|\s+$/g, '')
+      .replace(/\s+/g, " ")
+      .replace(/^\s+|\s+$/g, "")
       .toLowerCase();
 
-    return createHash('sha256')
+    return createHash("sha256")
       .update(normalized)
-      .digest('hex')
+      .digest("hex")
       .substring(0, 8);
   }
 
@@ -108,8 +113,10 @@ export class PersistentAICache implements AICache {
         let suggestions = entry.suggestions;
 
         // Decompress if needed
-        if (entry.compressed && typeof suggestions === 'string') {
-          const decompressed = await gunzipAsync(Buffer.from(suggestions as unknown as string, 'base64'));
+        if (entry.compressed && typeof suggestions === "string") {
+          const decompressed = await gunzipAsync(
+            Buffer.from(suggestions as unknown as string, "base64")
+          );
           suggestions = JSON.parse(decompressed.toString());
         }
 
@@ -123,7 +130,7 @@ export class PersistentAICache implements AICache {
         return null;
       }
     } catch (error) {
-      console.warn('Cache read error:', error);
+      console.warn("Cache read error:", error);
       this.stats.misses++;
       return null;
     }
@@ -137,7 +144,7 @@ export class PersistentAICache implements AICache {
         suggestions,
         timestamp: Date.now(),
         version: this.version,
-        compressed: false
+        compressed: false,
       };
 
       // Store in memory cache
@@ -147,19 +154,22 @@ export class PersistentAICache implements AICache {
       const dataSize = JSON.stringify(suggestions).length;
       let diskEntry = entry;
 
-      if (dataSize > 1024) { // Compress if larger than 1KB
+      if (dataSize > 1024) {
+        // Compress if larger than 1KB
         const compressed = await gzipAsync(JSON.stringify(suggestions));
         diskEntry = {
           ...entry,
-          suggestions: compressed.toString('base64') as unknown as CommitSuggestion[],
-          compressed: true
+          suggestions: compressed.toString(
+            "base64"
+          ) as unknown as CommitSuggestion[],
+          compressed: true,
         };
       }
 
       const filePath = this.getCacheFilePath(key);
       await writeFile(filePath, JSON.stringify(diskEntry));
     } catch (error) {
-      console.warn('Cache write error:', error);
+      console.warn("Cache write error:", error);
     }
   }
 
@@ -183,14 +193,17 @@ export class PersistentAICache implements AICache {
 
     return {
       size: this.memoryCache.size,
-      hitRate
+      hitRate,
     };
   }
 }
 
 // Request batching and deduplication
 export class RequestBatcher {
-  private readonly pendingRequests = new Map<string, Promise<CommitSuggestion[]>>();
+  private readonly pendingRequests = new Map<
+    string,
+    Promise<CommitSuggestion[]>
+  >();
   private readonly batchTimeout = 50; // 50ms batch window
 
   async batch<T>(
@@ -218,7 +231,10 @@ export class RequestBatcher {
       }, timeoutMs);
     });
 
-    this.pendingRequests.set(key, promise as unknown as Promise<CommitSuggestion[]>);
+    this.pendingRequests.set(
+      key,
+      promise as unknown as Promise<CommitSuggestion[]>
+    );
     return promise;
   }
 

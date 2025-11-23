@@ -1,6 +1,6 @@
 // Enhanced error handling system with user-friendly messages and actionable suggestions
 
-import { lightColors } from './colors.js';
+import { lightColors } from "./colors.js";
 
 export interface ErrorContext {
   operation?: string;
@@ -32,8 +32,11 @@ export class EnhancedErrorHandler {
     return EnhancedErrorHandler.instance;
   }
 
-  createUserFriendlyError(error: Error | string, context?: ErrorContext): UserFriendlyError {
-    const errorMessage = typeof error === 'string' ? error : error.message;
+  createUserFriendlyError(
+    error: Error | string,
+    context?: ErrorContext
+  ): UserFriendlyError {
+    const errorMessage = typeof error === "string" ? error : error.message;
     const errorType = this.categorizeError(errorMessage);
 
     return this.getErrorMapping(errorType, errorMessage, context);
@@ -42,22 +45,24 @@ export class EnhancedErrorHandler {
   displayError(error: Error | string, context?: ErrorContext): void {
     const friendlyError = this.createUserFriendlyError(error, context);
 
-    console.error(`\n${lightColors.red(`❌ ${  friendlyError.title}`)}`);
+    console.error(`\n${lightColors.red(`❌ ${friendlyError.title}`)}`);
     console.error(lightColors.gray(friendlyError.message));
 
     if (friendlyError.suggestions.length > 0) {
-      console.error(`\n${lightColors.yellow('💡 Suggestions:')}`);
+      console.error(`\n${lightColors.yellow("💡 Suggestions:")}`);
       friendlyError.suggestions.forEach((suggestion, index) => {
         console.error(`  ${index + 1}. ${suggestion}`);
       });
     }
 
     if (friendlyError.helpUrl) {
-      console.error(`\n${lightColors.blue(`📖 Learn more: ${friendlyError.helpUrl}`)}`);
+      console.error(
+        `\n${lightColors.blue(`📖 Learn more: ${friendlyError.helpUrl}`)}`
+      );
     }
 
     if (friendlyError.technicalDetails && process.env.DEBUG) {
-      console.error(`\n${lightColors.dim('🔍 Technical Details:')}`);
+      console.error(`\n${lightColors.dim("🔍 Technical Details:")}`);
       console.error(lightColors.dim(friendlyError.technicalDetails));
     }
   }
@@ -67,7 +72,7 @@ export class EnhancedErrorHandler {
     context: ErrorContext,
     maxRetries = this.maxRetries
   ): Promise<T> {
-    const operationKey = `${context.operation || 'unknown'}:${context.file || 'global'}`;
+    const operationKey = `${context.operation || "unknown"}:${context.file || "global"}`;
     let attempts = 0;
 
     while (attempts < maxRetries) {
@@ -84,191 +89,221 @@ export class EnhancedErrorHandler {
           // Final failure - show comprehensive error
           this.displayError(error as Error, {
             ...context,
-            suggestion: `Operation failed after ${attempts} attempts. This might indicate a persistent issue.`
+            suggestion: `Operation failed after ${attempts} attempts. This might indicate a persistent issue.`,
           });
           throw error;
         } else {
           // Retry with user feedback
-          const friendlyError = this.createUserFriendlyError(error as Error, context);
-          console.warn(lightColors.yellow(`⚠️  ${friendlyError.title} (attempt ${attempts}/${maxRetries})`));
-          console.warn(lightColors.gray(`   Retrying in ${attempts * 1000}ms...`));
+          const friendlyError = this.createUserFriendlyError(
+            error as Error,
+            context
+          );
+          console.warn(
+            lightColors.yellow(
+              `⚠️  ${friendlyError.title} (attempt ${attempts}/${maxRetries})`
+            )
+          );
+          console.warn(
+            lightColors.gray(`   Retrying in ${attempts * 1000}ms...`)
+          );
 
           await new Promise(resolve => setTimeout(resolve, attempts * 1000));
         }
       }
     }
 
-    throw new Error('Unexpected retry loop completion');
+    throw new Error("Unexpected retry loop completion");
   }
 
   private categorizeError(errorMessage: string): string {
     const message = errorMessage.toLowerCase();
 
     // Git-related errors
-    if (message.includes('not a git repository') || message.includes('fatal: not a git repository')) {
-      return 'not-git-repo';
+    if (
+      message.includes("not a git repository") ||
+      message.includes("fatal: not a git repository")
+    ) {
+      return "not-git-repo";
     }
-    if (message.includes('permission denied') || message.includes('eacces')) {
-      return 'permission-denied';
+    if (message.includes("permission denied") || message.includes("eacces")) {
+      return "permission-denied";
     }
-    if (message.includes('network') || message.includes('timeout') || message.includes('enotfound')) {
-      return 'network-error';
+    if (
+      message.includes("network") ||
+      message.includes("timeout") ||
+      message.includes("enotfound")
+    ) {
+      return "network-error";
     }
 
     // API-related errors
-    if (message.includes('api key') || message.includes('unauthorized') || message.includes('401')) {
-      return 'api-key-error';
+    if (
+      message.includes("api key") ||
+      message.includes("unauthorized") ||
+      message.includes("401")
+    ) {
+      return "api-key-error";
     }
-    if (message.includes('rate limit') || message.includes('429')) {
-      return 'rate-limit';
+    if (message.includes("rate limit") || message.includes("429")) {
+      return "rate-limit";
     }
-    if (message.includes('quota') || message.includes('billing')) {
-      return 'quota-exceeded';
+    if (message.includes("quota") || message.includes("billing")) {
+      return "quota-exceeded";
     }
 
     // File-related errors
-    if (message.includes('enoent') || message.includes('no such file')) {
-      return 'file-not-found';
+    if (message.includes("enoent") || message.includes("no such file")) {
+      return "file-not-found";
     }
-    if (message.includes('eisdir') || message.includes('is a directory')) {
-      return 'is-directory';
+    if (message.includes("eisdir") || message.includes("is a directory")) {
+      return "is-directory";
     }
 
     // Configuration errors
-    if (message.includes('config') || message.includes('configuration')) {
-      return 'config-error';
+    if (message.includes("config") || message.includes("configuration")) {
+      return "config-error";
     }
 
     // Validation errors
-    if (message.includes('invalid') || message.includes('validation')) {
-      return 'validation-error';
+    if (message.includes("invalid") || message.includes("validation")) {
+      return "validation-error";
     }
 
-    return 'generic-error';
+    return "generic-error";
   }
 
-  private getErrorMapping(errorType: string, originalMessage: string, context?: ErrorContext): UserFriendlyError {
+  private getErrorMapping(
+    errorType: string,
+    originalMessage: string,
+    context?: ErrorContext
+  ): UserFriendlyError {
     const errorMappings: Record<string, UserFriendlyError> = {
-      'not-git-repo': {
-        title: 'Not a Git Repository',
-        message: 'This directory is not initialized as a Git repository.',
+      "not-git-repo": {
+        title: "Not a Git Repository",
+        message: "This directory is not initialized as a Git repository.",
         suggestions: [
           'Run "git init" to initialize a new Git repository',
-          'Navigate to a directory that contains a Git repository',
-          'Clone an existing repository with "git clone <url>"'
+          "Navigate to a directory that contains a Git repository",
+          'Clone an existing repository with "git clone <url>"',
         ],
-        helpUrl: 'https://github.com/sojanvarghese/commitx#getting-started'
+        helpUrl: "https://github.com/sojanvarghese/commitx#getting-started",
       },
 
-      'permission-denied': {
-        title: 'Permission Denied',
-        message: 'CommitX doesn\'t have the necessary permissions to perform this operation.',
+      "permission-denied": {
+        title: "Permission Denied",
+        message:
+          "CommitX doesn't have the necessary permissions to perform this operation.",
         suggestions: [
-          'Check file and directory permissions',
-          'Run with appropriate user permissions (avoid sudo if possible)',
-          'Ensure you have write access to the Git repository',
-          'Check if files are locked by another process'
+          "Check file and directory permissions",
+          "Run with appropriate user permissions (avoid sudo if possible)",
+          "Ensure you have write access to the Git repository",
+          "Check if files are locked by another process",
         ],
-        technicalDetails: originalMessage
+        technicalDetails: originalMessage,
       },
 
-      'network-error': {
-        title: 'Network Connection Problem',
-        message: 'Unable to connect to the AI service. This could be a temporary network issue.',
+      "network-error": {
+        title: "Network Connection Problem",
+        message:
+          "Unable to connect to the AI service. This could be a temporary network issue.",
         suggestions: [
-          'Check your internet connection',
-          'Verify firewall settings allow HTTPS connections',
-          'Try again in a few moments',
-          'Use --dry-run to test without AI calls'
+          "Check your internet connection",
+          "Verify firewall settings allow HTTPS connections",
+          "Try again in a few moments",
+          "Use --dry-run to test without AI calls",
         ],
-        technicalDetails: originalMessage
+        technicalDetails: originalMessage,
       },
 
-      'api-key-error': {
-        title: 'API Key Problem',
-        message: 'There\'s an issue with your AI service API key.',
+      "api-key-error": {
+        title: "API Key Problem",
+        message: "There's an issue with your AI service API key.",
         suggestions: [
           'Run "cx setup" to configure your API key',
-          'Verify your API key is valid at https://makersuite.google.com/app/apikey',
-          'Check that GEMINI_API_KEY environment variable is set correctly',
-          'Ensure your API key has the necessary permissions'
+          "Verify your API key is valid at https://makersuite.google.com/app/apikey",
+          "Check that GEMINI_API_KEY environment variable is set correctly",
+          "Ensure your API key has the necessary permissions",
         ],
-        helpUrl: 'https://github.com/sojanvarghese/commitx#setup'
+        helpUrl: "https://github.com/sojanvarghese/commitx#setup",
       },
 
-      'rate-limit': {
-        title: 'API Rate Limit Reached',
-        message: 'You\'ve exceeded the API rate limit. Please wait before making more requests.',
+      "rate-limit": {
+        title: "API Rate Limit Reached",
+        message:
+          "You've exceeded the API rate limit. Please wait before making more requests.",
         suggestions: [
-          'Wait a few minutes before trying again',
-          'Consider upgrading your API plan if you need higher limits',
-          'Use --dry-run to test without API calls',
-          'Process files in smaller batches'
+          "Wait a few minutes before trying again",
+          "Consider upgrading your API plan if you need higher limits",
+          "Use --dry-run to test without API calls",
+          "Process files in smaller batches",
         ],
-        technicalDetails: originalMessage
+        technicalDetails: originalMessage,
       },
 
-      'quota-exceeded': {
-        title: 'API Quota Exceeded',
-        message: 'Your API usage quota has been exceeded.',
+      "quota-exceeded": {
+        title: "API Quota Exceeded",
+        message: "Your API usage quota has been exceeded.",
         suggestions: [
-          'Check your API usage dashboard',
-          'Wait until your quota resets (usually monthly)',
-          'Consider upgrading your API plan',
-          'Use more selective file processing'
+          "Check your API usage dashboard",
+          "Wait until your quota resets (usually monthly)",
+          "Consider upgrading your API plan",
+          "Use more selective file processing",
         ],
-        helpUrl: 'https://console.cloud.google.com/apis/dashboard'
+        helpUrl: "https://console.cloud.google.com/apis/dashboard",
       },
 
-      'file-not-found': {
-        title: 'File Not Found',
-        message: `The file "${context?.file || 'specified file'}" could not be found.`,
+      "file-not-found": {
+        title: "File Not Found",
+        message: `The file "${context?.file || "specified file"}" could not be found.`,
         suggestions: [
-          'Check that the file path is correct',
-          'Verify the file hasn\'t been moved or deleted',
-          'Make sure you\'re in the correct directory',
-          'Use "git status" to see available files'
+          "Check that the file path is correct",
+          "Verify the file hasn't been moved or deleted",
+          "Make sure you're in the correct directory",
+          'Use "git status" to see available files',
         ],
-        technicalDetails: originalMessage
+        technicalDetails: originalMessage,
       },
 
-      'config-error': {
-        title: 'Configuration Error',
-        message: 'There\'s an issue with your CommitX configuration.',
+      "config-error": {
+        title: "Configuration Error",
+        message: "There's an issue with your CommitX configuration.",
         suggestions: [
           'Run "cx config get" to check current settings',
           'Run "cx config reset" to restore defaults',
-          'Check that all configuration values are valid',
-          'Run "cx setup" to reconfigure from scratch'
+          "Check that all configuration values are valid",
+          'Run "cx setup" to reconfigure from scratch',
         ],
-        technicalDetails: originalMessage
+        technicalDetails: originalMessage,
       },
 
-      'validation-error': {
-        title: 'Invalid Input',
-        message: 'The provided input doesn\'t meet the required format or constraints.',
+      "validation-error": {
+        title: "Invalid Input",
+        message:
+          "The provided input doesn't meet the required format or constraints.",
         suggestions: [
-          'Check the input format matches the expected pattern',
-          'Ensure all required fields are provided',
-          'Verify that values are within acceptable ranges',
-          'Use "cx help-examples" to see correct usage'
+          "Check the input format matches the expected pattern",
+          "Ensure all required fields are provided",
+          "Verify that values are within acceptable ranges",
+          'Use "cx help-examples" to see correct usage',
         ],
-        technicalDetails: originalMessage
-      }
+        technicalDetails: originalMessage,
+      },
     };
 
-    return errorMappings[errorType] || {
-      title: 'Unexpected Error',
-      message: 'An unexpected error occurred.',
-      suggestions: [
-        'Try running the command again',
-        'Check if the issue persists with different files',
-        'Run with DEBUG=1 for more detailed error information',
-        'Report this issue if it continues: https://github.com/sojanvarghese/commitx/issues'
-      ],
-      technicalDetails: originalMessage,
-      helpUrl: 'https://github.com/sojanvarghese/commitx/issues'
-    };
+    return (
+      errorMappings[errorType] || {
+        title: "Unexpected Error",
+        message: "An unexpected error occurred.",
+        suggestions: [
+          "Try running the command again",
+          "Check if the issue persists with different files",
+          "Run with DEBUG=1 for more detailed error information",
+          "Report this issue if it continues: https://github.com/sojanvarghese/commitx/issues",
+        ],
+        technicalDetails: originalMessage,
+        helpUrl: "https://github.com/sojanvarghese/commitx/issues",
+      }
+    );
   }
 
   /**
@@ -281,12 +316,15 @@ export class EnhancedErrorHandler {
   /**
    * Get error statistics
    */
-  getErrorStats(): { totalErrors: number; errorsByType: Record<string, number> } {
+  getErrorStats(): {
+    totalErrors: number;
+    errorsByType: Record<string, number>;
+  } {
     const errorsByType: Record<string, number> = {};
     let totalErrors = 0;
 
     this.errorCounts.forEach((count, key) => {
-      const [operation] = key.split(':');
+      const [operation] = key.split(":");
       errorsByType[operation] = (errorsByType[operation] || 0) + count;
       totalErrors += count;
     });
@@ -298,7 +336,10 @@ export class EnhancedErrorHandler {
 /**
  * Convenience function for displaying user-friendly errors
  */
-export const displayUserFriendlyError = (error: Error | string, context?: ErrorContext): void => {
+export const displayUserFriendlyError = (
+  error: Error | string,
+  context?: ErrorContext
+): void => {
   EnhancedErrorHandler.getInstance().displayError(error, context);
 };
 

@@ -1,6 +1,6 @@
 // Enhanced progress feedback system with detailed progress bars and ETA calculation
 
-import { lightColors } from './colors.js';
+import { lightColors } from "./colors.js";
 
 export interface ProgressOptions {
   title: string;
@@ -32,7 +32,7 @@ export class ProgressTracker {
     this.showPercentage = options.showPercentage ?? true;
     this.showSpeed = options.showSpeed ?? false;
     this.width = options.width ?? 30;
-    this.format = options.format ?? 'bar';
+    this.format = options.format ?? "bar";
     this.startTime = Date.now();
     this.lastUpdateTime = this.startTime;
   }
@@ -62,17 +62,19 @@ export class ProgressTracker {
     this.render(message);
 
     if (process.stdout.isTTY) {
-      process.stdout.write('\n');
+      process.stdout.write("\n");
     }
   }
 
   fail(message?: string): void {
     if (process.stdout.isTTY) {
       // Clear current line
-      process.stdout.write('\r\x1b[K');
+      process.stdout.write("\r\x1b[K");
     }
 
-    console.error(lightColors.red(`❌ ${this.title}${message ? `: ${message}` : ''}`));
+    console.error(
+      lightColors.red(`❌ ${this.title}${message ? `: ${message}` : ""}`)
+    );
   }
 
   private render(message?: string): void {
@@ -80,7 +82,9 @@ export class ProgressTracker {
       // Non-TTY output - just log milestones
       if (this.current % Math.ceil(this.total / 10) === 0 || this.isComplete) {
         const percent = Math.round((this.current / this.total) * 100);
-        console.log(`${this.title}: ${percent}%${message ? ` - ${message}` : ''}`);
+        console.log(
+          `${this.title}: ${percent}%${message ? ` - ${message}` : ""}`
+        );
       }
       return;
     }
@@ -95,13 +99,13 @@ export class ProgressTracker {
     const percent = this.total > 0 ? this.current / this.total : 0;
     const percentText = Math.round(percent * 100);
 
-    let line = '';
+    let line = "";
 
     // Title
     line += `${lightColors.cyan(this.title)} `;
 
     // Progress bar
-    if (this.format === 'bar') {
+    if (this.format === "bar") {
       line += this.buildProgressBar(percent);
     } else {
       line += this.buildSpinner();
@@ -143,8 +147,8 @@ export class ProgressTracker {
     const filledWidth = Math.round(this.width * percent);
     const emptyWidth = this.width - filledWidth;
 
-    const filled = '█'.repeat(filledWidth);
-    const empty = '░'.repeat(emptyWidth);
+    const filled = "█".repeat(filledWidth);
+    const empty = "░".repeat(emptyWidth);
 
     const color = this.isComplete
       ? lightColors.green
@@ -156,7 +160,7 @@ export class ProgressTracker {
   }
 
   private buildSpinner(): string {
-    const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     const frame = frames[Math.floor(Date.now() / 80) % frames.length];
     return lightColors.cyan(frame);
   }
@@ -206,7 +210,8 @@ export class ProgressTracker {
  * Multi-step progress tracker for complex operations
  */
 export class MultiStepProgress {
-  private steps: Array<{ name: string; weight: number; completed: boolean }> = [];
+  private steps: Array<{ name: string; weight: number; completed: boolean }> =
+    [];
   private currentStep = 0;
   private currentStepProgress = 0;
   private tracker?: ProgressTracker;
@@ -224,7 +229,7 @@ export class MultiStepProgress {
       title: this.title,
       total: totalWeight * 100, // Use 100 as multiplier for smooth progress
       showETA: true,
-      showPercentage: true
+      showPercentage: true,
     });
 
     this.updateProgress();
@@ -259,7 +264,7 @@ export class MultiStepProgress {
   }
 
   complete(message?: string): void {
-    this.tracker?.complete(message || 'All steps completed');
+    this.tracker?.complete(message || "All steps completed");
   }
 
   fail(message?: string): void {
@@ -279,7 +284,7 @@ export class MultiStepProgress {
     // Add current step progress
     if (this.currentStep < this.steps.length) {
       const currentWeight = this.steps[this.currentStep].weight;
-      totalProgress += (currentWeight * this.currentStepProgress);
+      totalProgress += currentWeight * this.currentStepProgress;
     }
 
     this.tracker.update(Math.round(totalProgress), message);

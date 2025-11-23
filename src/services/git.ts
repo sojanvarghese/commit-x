@@ -1,17 +1,17 @@
-import simpleGit, { type SimpleGit } from 'simple-git';
-import type { GitDiff, GitStatus } from '../types/common.js';
+import simpleGit, { type SimpleGit } from "simple-git";
+import type { GitDiff, GitStatus } from "../types/common.js";
 import {
   validateAndSanitizePath,
   validateDiffSize,
   withTimeout,
   validateGitRepository,
   validateCommitMessage,
-} from '../utils/security.js';
-import { ErrorType } from '../types/error-handler.js';
-import { withErrorHandling, SecureError } from '../utils/error-handler.js';
-import { calculateGitTimeout } from '../utils/timeout.js';
-import { ERROR_MESSAGES } from '../constants/messages.js';
-import { UI_CONSTANTS } from '../constants/ui.js';
+} from "../utils/security.js";
+import { ErrorType } from "../types/error-handler.js";
+import { withErrorHandling, SecureError } from "../utils/error-handler.js";
+import { calculateGitTimeout } from "../utils/timeout.js";
+import { ERROR_MESSAGES } from "../constants/messages.js";
+import { UI_CONSTANTS } from "../constants/ui.js";
 
 // Simple cache for Git operations
 interface GitCache {
@@ -30,7 +30,10 @@ export class GitService {
     this.repositoryPath = process.cwd();
   }
 
-  private isCacheValid<T>(cacheEntry?: { data: T; timestamp: number }): cacheEntry is { data: T; timestamp: number } {
+  private isCacheValid<T>(cacheEntry?: {
+    data: T;
+    timestamp: number;
+  }): cacheEntry is { data: T; timestamp: number } {
     if (!cacheEntry) return false;
     return Date.now() - cacheEntry.timestamp < this.CACHE_TTL_MS;
   }
@@ -58,13 +61,13 @@ export class GitService {
           throw new SecureError(
             errorMessage,
             ErrorType.GIT_ERROR,
-            { operation: 'isGitRepository' },
+            { operation: "isGitRepository" },
             false
           );
         }
         return true;
       },
-      { operation: 'isGitRepository' }
+      { operation: "isGitRepository" }
     );
   };
 
@@ -75,7 +78,10 @@ export class GitService {
           return this.cache.status.data;
         }
 
-        const status = await withTimeout(this.git.status(), calculateGitTimeout({}));
+        const status = await withTimeout(
+          this.git.status(),
+          calculateGitTimeout({})
+        );
         const staged = this.validateFilePaths(status.staged);
         const unstaged = this.validateFilePaths(status.modified);
         const untracked = this.validateFilePaths(status.not_added);
@@ -90,7 +96,7 @@ export class GitService {
 
         return result;
       },
-      { operation: 'getStatus' }
+      { operation: "getStatus" }
     );
   };
 
@@ -102,7 +108,9 @@ export class GitService {
       if (validation.isValid && validation.sanitizedValue) {
         validPaths.push(validation.sanitizedValue);
       } else {
-        console.warn(`Skipping invalid file path: ${filePath} - ${validation.error}`);
+        console.warn(
+          `Skipping invalid file path: ${filePath} - ${validation.error}`
+        );
       }
     }
 
@@ -112,30 +120,46 @@ export class GitService {
   getUnstagedFiles = async (): Promise<string[]> => {
     return withErrorHandling(
       async () => {
-        const status = await withTimeout(this.git.status(), calculateGitTimeout({}));
+        const status = await withTimeout(
+          this.git.status(),
+          calculateGitTimeout({})
+        );
 
-        const allFiles = [...status.modified, ...status.not_added, ...status.deleted];
+        const allFiles = [
+          ...status.modified,
+          ...status.not_added,
+          ...status.deleted,
+        ];
         return this.validateFilePaths(allFiles);
       },
-      { operation: 'getUnstagedFiles' }
+      { operation: "getUnstagedFiles" }
     );
   };
 
-  getFileDiff = async (file: string, staged: boolean = false): Promise<GitDiff> => {
+  getFileDiff = async (
+    file: string,
+    staged: boolean = false
+  ): Promise<GitDiff> => {
     return withErrorHandling(
       async () => {
-        const pathValidation = validateAndSanitizePath(file, this.repositoryPath);
+        const pathValidation = validateAndSanitizePath(
+          file,
+          this.repositoryPath
+        );
         if (!pathValidation.isValid || !pathValidation.sanitizedValue) {
           throw new SecureError(
-            pathValidation.error ?? 'Invalid file path',
+            pathValidation.error ?? "Invalid file path",
             ErrorType.SECURITY_ERROR,
-            { operation: 'getFileDiff', file },
+            { operation: "getFileDiff", file },
             false
           );
         }
 
         const validatedFile = pathValidation.sanitizedValue;
-        const status = await withTimeout(this.git.status(), calculateGitTimeout({}));
+        const status = await withTimeout(
+          this.git.status(),
+          calculateGitTimeout({})
+        );
         const relativeFile = file.startsWith(this.repositoryPath)
           ? file.substring(this.repositoryPath.length + 1)
           : file;
@@ -159,9 +183,9 @@ export class GitService {
           const isUntracked = status.not_added.includes(relativeFile);
 
           if (isUntracked && !staged) {
-            const { readFile } = await import('fs/promises');
-            const fileContent = await readFile(validatedFile, 'utf-8');
-            const lines = fileContent.split('\n').length;
+            const { readFile } = await import("fs/promises");
+            const fileContent = await readFile(validatedFile, "utf-8");
+            const lines = fileContent.split("\n").length;
 
             return {
               file: validatedFile,
@@ -175,81 +199,118 @@ export class GitService {
             };
           }
 
-          const diffArgs = staged ? ['--cached', validatedFile] : [validatedFile];
+          const diffArgs = staged
+            ? ["--cached", validatedFile]
+            : [validatedFile];
           const diffTimeout = calculateGitTimeout({ diffSize: 0 }); // Will be adjusted after getting diff
           const diff = await withTimeout(this.git.diff(diffArgs), diffTimeout);
-          const diffSummary = await withTimeout(this.git.diffSummary(diffArgs), diffTimeout);
+          const diffSummary = await withTimeout(
+            this.git.diffSummary(diffArgs),
+            diffTimeout
+          );
 
           const diffValidation = validateDiffSize(diff);
           if (!diffValidation.isValid) {
             // For lock files, use summary data instead of full diff content
             const isLockFile =
-              relativeFile.includes('yarn.lock') ||
-              relativeFile.includes('package-lock.json') ||
-              relativeFile.includes('pnpm-lock.yaml');
+              relativeFile.includes("yarn.lock") ||
+              relativeFile.includes("package-lock.json") ||
+              relativeFile.includes("pnpm-lock.yaml");
 
             if (isLockFile) {
-              const fileSummary = diffSummary.files.find((f: { file: string; insertions?: number; deletions?: number }) => f.file === relativeFile);
+              const fileSummary = diffSummary.files.find(
+                (f: {
+                  file: string;
+                  insertions?: number;
+                  deletions?: number;
+                }) => f.file === relativeFile
+              );
               return {
                 file: validatedFile,
                 additions: fileSummary?.insertions ?? 0,
                 deletions: fileSummary?.deletions ?? 0,
                 changes: `Lock file updated: ${fileSummary?.insertions ?? 0} additions, ${fileSummary?.deletions ?? 0} deletions`,
                 isNew:
-                  status.created.includes(relativeFile) || status.not_added.includes(relativeFile),
+                  status.created.includes(relativeFile) ||
+                  status.not_added.includes(relativeFile),
                 isDeleted: status.deleted.includes(relativeFile),
-                isRenamed: status.renamed.some((r: { to: string }) => r.to === relativeFile),
-                oldPath: status.renamed.find((r: { to: string; from: string }) => r.to === relativeFile)?.from ?? undefined,
+                isRenamed: status.renamed.some(
+                  (r: { to: string }) => r.to === relativeFile
+                ),
+                oldPath:
+                  status.renamed.find(
+                    (r: { to: string; from: string }) => r.to === relativeFile
+                  )?.from ?? undefined,
               };
             }
 
             throw new SecureError(
-              diffValidation.error ?? 'Validation failed',
+              diffValidation.error ?? "Validation failed",
               ErrorType.VALIDATION_ERROR,
-              { operation: 'getFileDiff', file: validatedFile },
+              { operation: "getFileDiff", file: validatedFile },
               true
             );
           }
 
-          const fileSummary = diffSummary.files.find((f: { file: string; insertions?: number; deletions?: number }) => f.file === relativeFile);
+          const fileSummary = diffSummary.files.find(
+            (f: { file: string; insertions?: number; deletions?: number }) =>
+              f.file === relativeFile
+          );
 
           return {
             file: validatedFile,
             additions: fileSummary?.insertions ?? 0,
             deletions: fileSummary?.deletions ?? 0,
-            changes: diffValidation.sanitizedValue ?? '',
-            isNew: status.created.includes(relativeFile) || status.not_added.includes(relativeFile),
+            changes: diffValidation.sanitizedValue ?? "",
+            isNew:
+              status.created.includes(relativeFile) ||
+              status.not_added.includes(relativeFile),
             isDeleted: status.deleted.includes(relativeFile),
-            isRenamed: status.renamed.some((r: { to: string }) => r.to === relativeFile),
-            oldPath: status.renamed.find((r: { to: string; from: string }) => r.to === relativeFile)?.from ?? undefined,
+            isRenamed: status.renamed.some(
+              (r: { to: string }) => r.to === relativeFile
+            ),
+            oldPath:
+              status.renamed.find(
+                (r: { to: string; from: string }) => r.to === relativeFile
+              )?.from ?? undefined,
           };
         } catch {
           return {
             file: validatedFile,
             additions: 0,
             deletions: 0,
-            changes: '',
-            isNew: status.created.includes(relativeFile) || status.not_added.includes(relativeFile),
+            changes: "",
+            isNew:
+              status.created.includes(relativeFile) ||
+              status.not_added.includes(relativeFile),
             isDeleted: status.deleted.includes(relativeFile),
-            isRenamed: status.renamed.some((r: { to: string }) => r.to === relativeFile),
-            oldPath: status.renamed.find((r: { to: string; from: string }) => r.to === relativeFile)?.from ?? undefined,
+            isRenamed: status.renamed.some(
+              (r: { to: string }) => r.to === relativeFile
+            ),
+            oldPath:
+              status.renamed.find(
+                (r: { to: string; from: string }) => r.to === relativeFile
+              )?.from ?? undefined,
           };
         }
       },
-      { operation: 'getFileDiff', file }
+      { operation: "getFileDiff", file }
     );
   };
 
   getStagedDiff = async (): Promise<GitDiff[]> => {
     return withErrorHandling(
       async () => {
-        const status = await withTimeout(this.git.status(), calculateGitTimeout({}));
+        const status = await withTimeout(
+          this.git.status(),
+          calculateGitTimeout({})
+        );
 
         if (status.staged.length === 0) {
           throw new SecureError(
             ERROR_MESSAGES.NO_STAGED_CHANGES,
             ErrorType.GIT_ERROR,
-            { operation: 'getStagedDiff' },
+            { operation: "getStagedDiff" },
             true
           );
         }
@@ -260,9 +321,12 @@ export class GitService {
         for (const file of validatedFiles) {
           try {
             const diffTimeout = calculateGitTimeout({ diffSize: 0 });
-            const diff = await withTimeout(this.git.diff(['--cached', file]), diffTimeout);
+            const diff = await withTimeout(
+              this.git.diff(["--cached", file]),
+              diffTimeout
+            );
             const diffSummary = await withTimeout(
-              this.git.diffSummary(['--cached', file]),
+              this.git.diffSummary(["--cached", file]),
               diffTimeout
             );
 
@@ -272,17 +336,25 @@ export class GitService {
               continue;
             }
 
-            const fileSummary = diffSummary.files.find((f: { file: string; insertions?: number; deletions?: number }) => f.file === file);
+            const fileSummary = diffSummary.files.find(
+              (f: { file: string; insertions?: number; deletions?: number }) =>
+                f.file === file
+            );
 
             diffs.push({
               file,
               additions: fileSummary?.insertions ?? 0,
               deletions: fileSummary?.deletions ?? 0,
-              changes: diffValidation.sanitizedValue ?? '',
+              changes: diffValidation.sanitizedValue ?? "",
               isNew: status.created.includes(file),
               isDeleted: status.deleted.includes(file),
-              isRenamed: status.renamed.some((r: { to: string }) => r.to === file),
-              oldPath: status.renamed.find((r: { to: string; from: string }) => r.to === file)?.from ?? undefined,
+              isRenamed: status.renamed.some(
+                (r: { to: string }) => r.to === file
+              ),
+              oldPath:
+                status.renamed.find(
+                  (r: { to: string; from: string }) => r.to === file
+                )?.from ?? undefined,
             });
           } catch (error) {
             console.warn(`Failed to get diff for ${file}:`, error);
@@ -291,15 +363,22 @@ export class GitService {
 
         return diffs;
       },
-      { operation: 'getStagedDiff' }
+      { operation: "getStagedDiff" }
     );
   };
 
   getChangesSummary = async (): Promise<string> => {
-    const status = await withTimeout(this.git.status(), calculateGitTimeout({}));
-    const unstagedFiles = [...status.modified, ...status.not_added, ...status.deleted];
+    const status = await withTimeout(
+      this.git.status(),
+      calculateGitTimeout({})
+    );
+    const unstagedFiles = [
+      ...status.modified,
+      ...status.not_added,
+      ...status.deleted,
+    ];
 
-    if (unstagedFiles.length === 0) return 'No unstaged changes found.';
+    if (unstagedFiles.length === 0) return "No unstaged changes found.";
 
     const diffs: GitDiff[] = [];
     const validatedFiles = this.validateFilePaths(unstagedFiles);
@@ -314,7 +393,7 @@ export class GitService {
       }
     }
 
-    if (diffs.length === 0)  return 'No valid changes found.';
+    if (diffs.length === 0) return "No valid changes found.";
 
     let summary = `Changes summary:\n`;
     summary += `- ${diffs.length} file(s) modified\n`;
@@ -325,9 +404,12 @@ export class GitService {
     summary += `- ${totalAdditions} line(s) added\n`;
     summary += `- ${totalDeletions} line(s) deleted\n\n`;
 
-    summary += `Files:\n${diffs.map((diff) =>
-    `- ${this.getFileStatus(diff)} ${diff.file} (+${diff.additions}/-${diff.deletions})`
-    ).join('\n')}\n`;
+    summary += `Files:\n${diffs
+      .map(
+        diff =>
+          `- ${this.getFileStatus(diff)} ${diff.file} (+${diff.additions}/-${diff.deletions})`
+      )
+      .join("\n")}\n`;
 
     return summary;
   };
@@ -335,22 +417,25 @@ export class GitService {
   stageAll = async (): Promise<void> => {
     return withErrorHandling(
       async () => {
-        await withTimeout(this.git.add('.'), calculateGitTimeout({}));
+        await withTimeout(this.git.add("."), calculateGitTimeout({}));
         this.clearCache(); // Clear cache after staging
       },
-      { operation: 'stageAll' }
+      { operation: "stageAll" }
     );
   };
 
   stageFile = async (file: string): Promise<void> => {
     return withErrorHandling(
       async () => {
-        const pathValidation = validateAndSanitizePath(file, this.repositoryPath);
+        const pathValidation = validateAndSanitizePath(
+          file,
+          this.repositoryPath
+        );
         if (!pathValidation.isValid || !pathValidation.sanitizedValue) {
           throw new SecureError(
-            pathValidation.error ?? 'Invalid file path',
+            pathValidation.error ?? "Invalid file path",
             ErrorType.SECURITY_ERROR,
-            { operation: 'stageFile', file },
+            { operation: "stageFile", file },
             false
           );
         }
@@ -360,7 +445,7 @@ export class GitService {
         await withTimeout(this.git.add(sanitizedFile), calculateGitTimeout({}));
         this.clearCache(); // Clear cache after staging
       },
-      { operation: 'stageFile', file }
+      { operation: "stageFile", file }
     );
   };
 
@@ -370,22 +455,24 @@ export class GitService {
         const messageValidation = validateCommitMessage(message);
         if (!messageValidation.isValid || !messageValidation.sanitizedValue) {
           throw new SecureError(
-            messageValidation.error ?? 'Invalid commit message',
+            messageValidation.error ?? "Invalid commit message",
             ErrorType.VALIDATION_ERROR,
-            { operation: 'commit' },
+            { operation: "commit" },
             true
           );
         }
 
         const sanitizedMessage = messageValidation.sanitizedValue;
 
-        await withTimeout(this.git.commit(sanitizedMessage), calculateGitTimeout({}));
+        await withTimeout(
+          this.git.commit(sanitizedMessage),
+          calculateGitTimeout({})
+        );
         this.clearCache(); // Clear cache after commit
       },
-      { operation: 'commit' }
+      { operation: "commit" }
     );
   };
-
 
   getLastCommitMessage = async (): Promise<string | null> => {
     try {
@@ -405,9 +492,11 @@ export class GitService {
     const status = await this.git.status();
     const remotes = await this.git.getRemotes(true);
 
-    let repoName = 'unknown';
+    let repoName = "unknown";
     if (remotes.length > 0) {
-      const origin = remotes.find((r: { name: string; refs?: { fetch?: string } }) => r.name === 'origin');
+      const origin = remotes.find(
+        (r: { name: string; refs?: { fetch?: string } }) => r.name === "origin"
+      );
       if (origin?.refs?.fetch) {
         const match = origin.refs.fetch.match(/\/([^\/]+?)(?:\.git)?$/);
         if (match) {
@@ -416,7 +505,7 @@ export class GitService {
       }
     }
 
-    const result = {   name: repoName,    branch: status.current,};
+    const result = { name: repoName, branch: status.current };
     // Cache the result for longer since repo info changes less frequently
     this.cache.repoInfo = { data: result, timestamp: Date.now() };
 
@@ -438,7 +527,7 @@ export class GitService {
 
   // Wait for Git to naturally release the lock file
   waitForLockRelease = async (maxWaitMs: number = 250): Promise<void> => {
-    const { access } = await import('fs/promises');
+    const { access } = await import("fs/promises");
     const lockPath = `${this.repositoryPath}/.git/index.lock`;
     const checkInterval = 10; // Check every 10ms for very fast responsiveness
     const maxChecks = Math.floor(maxWaitMs / checkInterval);
@@ -447,17 +536,17 @@ export class GitService {
       try {
         await access(lockPath);
         // Lock file exists, wait a bit
-        await new Promise((resolve) => setTimeout(resolve, checkInterval));
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
       } catch {
         // Lock file doesn't exist, Git has released it
         // Add a tiny buffer to ensure Git is completely done
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise(resolve => setTimeout(resolve, 5));
         return;
       }
     }
 
     // If we get here, lock file still exists after timeout
     // This is unusual but we should continue anyway
-    console.warn('⚠️  Git lock file persisted longer than expected');
+    console.warn("⚠️  Git lock file persisted longer than expected");
   };
 }

@@ -28,28 +28,34 @@ export const createLazyModule = <T>(
  */
 export const lazyModules = {
   // Lightweight UI alternatives (prioritized over heavy deps)
-  inquirer: createLazyModule('inquirer', () => import('./prompts.js')),
-  gradientString: createLazyModule('gradient-string', () => import('gradient-string')),
+  inquirer: createLazyModule("inquirer", () => import("./prompts.js")),
+  gradientString: createLazyModule(
+    "gradient-string",
+    () => import("gradient-string")
+  ),
 
   // Core services (loaded on demand)
-  commitX: createLazyModule('commitX', () => import('../core/commitx.js')),
+  commitX: createLazyModule("commitX", () => import("../core/commitx.js")),
 
   // Security utilities
-  security: createLazyModule('security', () => import('./security.js')),
+  security: createLazyModule("security", () => import("./security.js")),
 
   // File system utilities
-  fs: createLazyModule('fs', () => import('fs/promises')),
+  fs: createLazyModule("fs", () => import("fs/promises")),
 
   // Configuration
-  config: createLazyModule('config', () => import('../config.js')),
+  config: createLazyModule("config", () => import("../config.js")),
 
   // Enhanced utilities
-  enhancedErrorHandler: createLazyModule('enhancedErrorHandler', () => import('./enhanced-error-handler.js')),
-  progress: createLazyModule('progress', () => import('./progress.js')),
+  enhancedErrorHandler: createLazyModule(
+    "enhancedErrorHandler",
+    () => import("./enhanced-error-handler.js")
+  ),
+  progress: createLazyModule("progress", () => import("./progress.js")),
 
   // Lightweight alternatives
-  colors: createLazyModule('colors', () => import('./colors.js')),
-  spinner: createLazyModule('spinner', () => import('./spinner.js'))
+  colors: createLazyModule("colors", () => import("./colors.js")),
+  spinner: createLazyModule("spinner", () => import("./spinner.js")),
 };
 
 /**
@@ -78,6 +84,6 @@ export const clearModuleCache = (): void => {
 export const getCacheStats = () => {
   return {
     cachedModules: Array.from(moduleCache.keys()),
-    cacheSize: moduleCache.size
+    cacheSize: moduleCache.size,
   };
 };

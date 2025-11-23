@@ -1,8 +1,16 @@
-import { lightColors } from './colors.js';
+import { lightColors } from "./colors.js";
 
 export interface SpinnerOptions {
   text?: string;
-  color?: 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan' | 'white' | 'gray';
+  color?:
+    | "red"
+    | "green"
+    | "yellow"
+    | "blue"
+    | "magenta"
+    | "cyan"
+    | "white"
+    | "gray";
   interval?: number;
   stream?: typeof process.stderr;
   frames?: string[];
@@ -19,21 +27,34 @@ export class LightSpinner {
   private timer?: ReturnType<typeof setTimeout>;
   private lastLength = 0;
 
-  private static readonly DEFAULT_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-  private static readonly FALLBACK_FRAMES = ['|', '/', '-', '\\'];
+  private static readonly DEFAULT_FRAMES = [
+    "⠋",
+    "⠙",
+    "⠹",
+    "⠸",
+    "⠼",
+    "⠴",
+    "⠦",
+    "⠧",
+    "⠇",
+    "⠏",
+  ];
+  private static readonly FALLBACK_FRAMES = ["|", "/", "-", "\\"];
 
   constructor(options: SpinnerOptions | string = {}) {
-    if (typeof options === 'string') {
+    if (typeof options === "string") {
       options = { text: options };
     }
 
-    this.text = options.text ?? '';
-    this.color = options.color ?? 'cyan';
+    this.text = options.text ?? "";
+    this.color = options.color ?? "cyan";
     this.interval = options.interval ?? 80;
     this.stream = options.stream ?? process.stderr;
 
     const useUnicode = process.stdout.isTTY && !process.env.CI;
-    this.frames = options.frames ?? (useUnicode ? LightSpinner.DEFAULT_FRAMES : LightSpinner.FALLBACK_FRAMES);
+    this.frames =
+      options.frames ??
+      (useUnicode ? LightSpinner.DEFAULT_FRAMES : LightSpinner.FALLBACK_FRAMES);
   }
 
   start(text?: string): this {
@@ -47,7 +68,7 @@ export class LightSpinner {
 
     if (!this.stream.isTTY) {
       if (this.text) {
-        this.stream.write(`${this.text  }\n`);
+        this.stream.write(`${this.text}\n`);
       }
       return this;
     }
@@ -55,7 +76,7 @@ export class LightSpinner {
     this.isSpinning = true;
     this.currentFrame = 0;
 
-    this.stream.write('\u001B[?25l');
+    this.stream.write("\u001B[?25l");
 
     this.render();
     this.timer = setInterval(() => {
@@ -79,7 +100,7 @@ export class LightSpinner {
 
     if (this.stream.isTTY) {
       this.clear();
-      this.stream.write('\u001B[?25h');
+      this.stream.write("\u001B[?25h");
     }
 
     return this;
@@ -89,7 +110,7 @@ export class LightSpinner {
     this.stop();
     const message = text ?? this.text;
     if (message) {
-      this.stream.write(`${lightColors.green('✓')} ${message}\n`);
+      this.stream.write(`${lightColors.green("✓")} ${message}\n`);
     }
     return this;
   }
@@ -98,7 +119,7 @@ export class LightSpinner {
     this.stop();
     const message = text ?? this.text;
     if (message) {
-      this.stream.write(`${lightColors.red('✗')} ${message}\n`);
+      this.stream.write(`${lightColors.red("✗")} ${message}\n`);
     }
     return this;
   }
@@ -107,7 +128,7 @@ export class LightSpinner {
     this.stop();
     const message = text ?? this.text;
     if (message) {
-      this.stream.write(`${lightColors.yellow('⚠')} ${message}\n`);
+      this.stream.write(`${lightColors.yellow("⚠")} ${message}\n`);
     }
     return this;
   }
@@ -116,7 +137,7 @@ export class LightSpinner {
     this.stop();
     const message = text ?? this.text;
     if (message) {
-      this.stream.write(`${lightColors.blue('ℹ')} ${message}\n`);
+      this.stream.write(`${lightColors.blue("ℹ")} ${message}\n`);
     }
     return this;
   }
@@ -144,7 +165,11 @@ export class LightSpinner {
 
     const frame = this.frames[this.currentFrame];
     const colorKey = this.color as keyof typeof lightColors;
-    const colorFn = (typeof lightColors[colorKey] === 'function' ? lightColors[colorKey] : lightColors.cyan) as (text: string) => string;
+    const colorFn = (
+      typeof lightColors[colorKey] === "function"
+        ? lightColors[colorKey]
+        : lightColors.cyan
+    ) as (text: string) => string;
     const line = `${colorFn(frame)} ${this.text}`;
 
     this.clear();
@@ -156,17 +181,19 @@ export class LightSpinner {
 
   private clear(): void {
     if (this.lastLength > 0) {
-      this.stream.write(`\r${  ' '.repeat(this.lastLength)  }\r`);
+      this.stream.write(`\r${" ".repeat(this.lastLength)}\r`);
     }
   }
 
   private stripAnsi(text: string): string {
     // eslint-disable-next-line no-control-regex
-    return text.replace(/\x1b\[[0-9;]*m/g, '');
+    return text.replace(/\x1b\[[0-9;]*m/g, "");
   }
 }
 
-export const lightSpinner = (options?: SpinnerOptions | string): LightSpinner => {
+export const lightSpinner = (
+  options?: SpinnerOptions | string
+): LightSpinner => {
   return new LightSpinner(options);
 };
 

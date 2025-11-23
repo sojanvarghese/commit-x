@@ -1,6 +1,10 @@
-import * as path from 'path';
-import * as os from 'os';
-import { SENSITIVE_EXTENSIONS, SENSITIVE_JSON_FILES, SENSITIVE_DIRECTORIES } from '../constants/security.js';
+import * as path from "path";
+import * as os from "os";
+import {
+  SENSITIVE_EXTENSIONS,
+  SENSITIVE_JSON_FILES,
+  SENSITIVE_DIRECTORIES,
+} from "../constants/security.js";
 
 // Common patterns that might indicate sensitive information
 const SENSITIVE_PATTERNS = [
@@ -54,7 +58,7 @@ export const sanitizeFilePath = (filePath: string, baseDir: string): string => {
     const relativePath = path.relative(baseDir, filePath);
 
     // If it's outside the base directory, return just the filename
-    if (relativePath.startsWith('..')) {
+    if (relativePath.startsWith("..")) {
       return path.basename(filePath);
     }
 
@@ -72,7 +76,9 @@ export const sanitizeFilePath = (filePath: string, baseDir: string): string => {
   }
 };
 
-export const sanitizeDiffContent = (content: string): { sanitized: string; warnings: string[] } => {
+export const sanitizeDiffContent = (
+  content: string
+): { sanitized: string; warnings: string[] } => {
   const warnings: string[] = [];
   let sanitized = content;
 
@@ -80,8 +86,10 @@ export const sanitizeDiffContent = (content: string): { sanitized: string; warni
   for (const pattern of SENSITIVE_PATTERNS) {
     const matches = sanitized.match(pattern);
     if (matches) {
-      warnings.push(`Potential sensitive data detected: ${matches[0].substring(0, 20)}...`);
-      sanitized = sanitized.replace(pattern, '[REDACTED]');
+      warnings.push(
+        `Potential sensitive data detected: ${matches[0].substring(0, 20)}...`
+      );
+      sanitized = sanitized.replace(pattern, "[REDACTED]");
     }
   }
 
@@ -89,8 +97,8 @@ export const sanitizeDiffContent = (content: string): { sanitized: string; warni
   for (const pattern of SECRET_COMMENT_PATTERNS) {
     const matches = sanitized.match(pattern);
     if (matches) {
-      warnings.push('Potential secrets detected in comments');
-      sanitized = sanitized.replace(pattern, '/* [REDACTED COMMENT] */');
+      warnings.push("Potential secrets detected in comments");
+      sanitized = sanitized.replace(pattern, "/* [REDACTED COMMENT] */");
     }
   }
 
@@ -108,8 +116,8 @@ export const sanitizeDiffContent = (content: string): { sanitized: string; warni
 
   for (const pattern of sensitiveFilePatterns) {
     if (pattern.test(sanitized)) {
-      warnings.push('Sensitive file pattern detected');
-      sanitized = sanitized.replace(pattern, '[SENSITIVE_FILE]');
+      warnings.push("Sensitive file pattern detected");
+      sanitized = sanitized.replace(pattern, "[SENSITIVE_FILE]");
     }
   }
 
@@ -130,7 +138,9 @@ export const sanitizeGitDiff = (
   baseDir: string
 ): SanitizedDiff => {
   const sanitizedPath = sanitizeFilePath(diff.file, baseDir);
-  const { sanitized: sanitizedChanges, warnings } = sanitizeDiffContent(diff.changes);
+  const { sanitized: sanitizedChanges, warnings } = sanitizeDiffContent(
+    diff.changes
+  );
 
   return {
     file: sanitizedPath,
@@ -155,18 +165,18 @@ export const shouldSkipFileForAI = (
   const fileName = path.basename(filePath).toLowerCase();
 
   if (SENSITIVE_EXTENSIONS.includes(ext)) {
-    return { skip: true, reason: 'Sensitive file type' };
+    return { skip: true, reason: "Sensitive file type" };
   }
 
   // Skip specific sensitive JSON files, but allow standard config files
-  if (ext === '.json' && SENSITIVE_JSON_FILES.includes(fileName)) {
-    return { skip: true, reason: 'Sensitive file type' };
+  if (ext === ".json" && SENSITIVE_JSON_FILES.includes(fileName)) {
+    return { skip: true, reason: "Sensitive file type" };
   }
 
   // Skip files with sensitive patterns in content
   for (const pattern of SENSITIVE_PATTERNS) {
     if (pattern.test(content)) {
-      return { skip: true, reason: 'Contains potential sensitive data' };
+      return { skip: true, reason: "Contains potential sensitive data" };
     }
   }
 
@@ -175,7 +185,7 @@ export const shouldSkipFileForAI = (
 
   for (const part of pathParts) {
     if (SENSITIVE_DIRECTORIES.includes(part)) {
-      return { skip: true, reason: 'Located in sensitive directory' };
+      return { skip: true, reason: "Located in sensitive directory" };
     }
   }
 
@@ -190,25 +200,31 @@ export const createPrivacyReport = (
   warnings: string[];
   recommendations: string[];
 } => {
-  const sanitizedFiles = sanitizedDiffs.filter((diff) => diff.sanitized).length;
-  const allWarnings = sanitizedDiffs.flatMap((diff) => diff.warnings);
+  const sanitizedFiles = sanitizedDiffs.filter(diff => diff.sanitized).length;
+  const allWarnings = sanitizedDiffs.flatMap(diff => diff.warnings);
 
   const recommendations: string[] = [];
 
   if (sanitizedFiles > 0) {
     recommendations.push(
-      'Consider using .gitignore to exclude sensitive files from version control'
+      "Consider using .gitignore to exclude sensitive files from version control"
     );
-    recommendations.push('Use environment variables for sensitive configuration');
-    recommendations.push('Review sanitized content before committing');
+    recommendations.push(
+      "Use environment variables for sensitive configuration"
+    );
+    recommendations.push("Review sanitized content before committing");
   }
 
-  if (allWarnings.some((w) => w.includes('API key') || w.includes('token'))) {
-    recommendations.push('Ensure API keys are stored in environment variables, not in code');
+  if (allWarnings.some(w => w.includes("API key") || w.includes("token"))) {
+    recommendations.push(
+      "Ensure API keys are stored in environment variables, not in code"
+    );
   }
 
-  if (allWarnings.some((w) => w.includes('password'))) {
-    recommendations.push('Use secure password management solutions instead of hardcoded passwords');
+  if (allWarnings.some(w => w.includes("password"))) {
+    recommendations.push(
+      "Use secure password management solutions instead of hardcoded passwords"
+    );
   }
 
   return {

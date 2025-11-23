@@ -1,8 +1,8 @@
-import type { CommitConfig } from '../types/common.js';
-import { AI_DEFAULT_MODEL } from './ai.js';
+import type { CommitConfig } from "../types/common.js";
+import { AI_DEFAULT_MODEL } from "./ai.js";
 
-export const CONFIG_DIR = '.commit-x';
-export const CONFIG_FILE = 'config.json';
+export const CONFIG_DIR = ".commit-x";
+export const CONFIG_FILE = "config.json";
 export const CONFIG_FILE_MODE = 0o600;
 export const CONFIG_DIR_MODE = 0o700;
 

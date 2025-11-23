@@ -1,8 +1,8 @@
 // Lightweight color utility as chalk alternative
 // Based on picocolors approach but even lighter
 
-const ESC = '\x1b[';
-const END = 'm';
+const ESC = "\x1b[";
+const END = "m";
 
 // Reset
 const RESET = `${ESC}0${END}`;
@@ -47,9 +47,9 @@ const isColorDisabled = (): boolean => {
   // - CI environment without FORCE_COLOR
   return Boolean(
     process.env.NO_COLOR ||
-    process.env.FORCE_COLOR === '0' ||
-    (!process.stdout.isTTY && !process.env.FORCE_COLOR) ||
-    (process.env.CI && !process.env.FORCE_COLOR)
+      process.env.FORCE_COLOR === "0" ||
+      (!process.stdout.isTTY && !process.env.FORCE_COLOR) ||
+      (process.env.CI && !process.env.FORCE_COLOR)
   );
 };
 
@@ -86,11 +86,11 @@ export const lightColors = {
   strip: (text: string): string => {
     // Remove all ANSI escape codes
     // eslint-disable-next-line no-control-regex
-    return text.replace(/\x1b\[[0-9;]*m/g, '');
+    return text.replace(/\x1b\[[0-9;]*m/g, "");
   },
 
   // Check if colors are supported
-  supportsColor: !isColorDisabled()
+  supportsColor: !isColorDisabled(),
 };
 
 // Default export for drop-in replacement

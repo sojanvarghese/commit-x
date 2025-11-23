@@ -5,7 +5,10 @@ import { PERFORMANCE_FLAGS } from "../constants/performance.js";
 export class PerformanceMonitor {
   private static instance: PerformanceMonitor;
   private readonly startTimes = new Map<string, number>();
-  private readonly metrics = new Map<string, { count: number; totalTime: number; avgTime: number }>();
+  private readonly metrics = new Map<
+    string,
+    { count: number; totalTime: number; avgTime: number }
+  >();
 
   private constructor() {
     // Private constructor for singleton pattern
@@ -33,7 +36,11 @@ export class PerformanceMonitor {
     const duration = endTime - startTime;
 
     // Update metrics
-      const existing = this.metrics.get(operation) ?? { count: 0, totalTime: 0, avgTime: 0 };
+    const existing = this.metrics.get(operation) ?? {
+      count: 0,
+      totalTime: 0,
+      avgTime: 0,
+    };
     existing.count++;
     existing.totalTime += duration;
     existing.avgTime = existing.totalTime / existing.count;
@@ -43,7 +50,10 @@ export class PerformanceMonitor {
     return duration;
   }
 
-  public getMetrics(): Map<string, { count: number; totalTime: number; avgTime: number }> {
+  public getMetrics(): Map<
+    string,
+    { count: number; totalTime: number; avgTime: number }
+  > {
     return new Map(this.metrics);
   }
 
@@ -74,7 +84,9 @@ export const withPerformanceTracking = async <T>(
 
     // Log slow operations if monitoring enabled
     if (PERFORMANCE_FLAGS.ENABLE_PERFORMANCE_MONITORING && duration > 1000) {
-      console.warn(`⚠️  Slow operation detected: ${operation} took ${duration.toFixed(2)}ms`);
+      console.warn(
+        `⚠️  Slow operation detected: ${operation} took ${duration.toFixed(2)}ms`
+      );
     }
 
     return result;
