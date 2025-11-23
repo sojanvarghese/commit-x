@@ -230,7 +230,7 @@ export const createPrivacyReport = (
   return {
     totalFiles: sanitizedDiffs.length,
     sanitizedFiles,
-    warnings: allWarnings,
+    warnings: [...new Set(allWarnings)],
     recommendations,
   };
 };
