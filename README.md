@@ -11,7 +11,8 @@
 
 ## ✨ Features
 
-- **Smart Analysis** - Automatically understands code changes and generates contextual commit messages
+- **Intelligent Grouping** - Automatically groups related file changes into logical commits
+- **Smart Analysis** - Understands code changes and generates contextual commit messages
 - **Intelligent Fallbacks** - Summary messages for large files, lock files, and build artifacts
 - **Security-First** - Path validation, input sanitization, and secure API key handling
 - **Fast & Reliable** - Optimized performance with retry logic and error recovery
@@ -42,13 +43,13 @@ export GEMINI_API_KEY="your_api_key_here"
 ### Usage
 
 ```bash
-# Process files with AI (recommended)
+# Process files with AI-powered intelligent grouping (recommended)
 cx
 
-# Traditional workflow
+# Stage all files and commit together (also uses AI grouping)
 cx commit --all
 
-# Preview changes
+# Preview commits without executing
 cx commit --dry-run
 ```
 
@@ -56,10 +57,11 @@ cx commit --dry-run
 
 | Command | Description |
 |---------|-------------|
-| `cx` | Process files with AI |
-| `cx commit --all` | Stage all files and commit together |
+| `cx` | Process files with AI-powered intelligent grouping |
+| `cx commit --all` | Stage all files and commit together (uses AI grouping) |
 | `cx commit --dry-run` | Preview commits without executing |
 | `cx commit -m "message"` | Use custom commit message |
+| `cx commit --all --interactive` | Interactive mode for traditional workflow |
 | `cx status` | Show repository status |
 | `cx diff` | Show unstaged changes summary |
 | `cx config` | View configuration |

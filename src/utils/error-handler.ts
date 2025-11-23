@@ -1,14 +1,14 @@
-import chalk from 'chalk';
-import { match } from 'ts-pattern';
-import { sanitizeError } from './security.js';
+import { lightColors } from "./colors.js";
+import { match } from "ts-pattern";
+import { sanitizeError } from "./security.js";
 import {
   ERROR_LOG_LIMIT,
   RECENT_ERROR_THRESHOLD_MS,
   DEFAULT_RETRY_ATTEMPTS,
   DEFAULT_RETRY_DELAY_MS,
   ERROR_PATTERNS,
-} from '../constants/error-handler.js';
-import { ErrorType, type ErrorContext } from '../types/error-handler.js';
+} from "../constants/error-handler.js";
+import { ErrorType, type ErrorContext } from "../types/error-handler.js";
 
 export class SecureError extends Error {
   public readonly type: ErrorType;
@@ -24,7 +24,7 @@ export class SecureError extends Error {
     userMessage?: string
   ) {
     super(sanitizeError(message));
-    this.name = 'SecureError';
+    this.name = "SecureError";
     this.type = type;
     this.context = { ...context, timestamp: new Date() };
     this.isRecoverable = isRecoverable;
@@ -35,37 +35,43 @@ export class SecureError extends Error {
     return match(this.type)
       .with(
         ErrorType.VALIDATION_ERROR,
-        () => 'Invalid input provided. Please check your input and try again.'
+        () => "Invalid input provided. Please check your input and try again."
       )
       .with(
         ErrorType.SECURITY_ERROR,
-        () => 'Security validation failed. Please check your input for suspicious content.'
+        () =>
+          "Security validation failed. Please check your input for suspicious content."
       )
       .with(
         ErrorType.NETWORK_ERROR,
-        () => 'Network connection failed. Please check your internet connection and try again.'
+        () =>
+          "Network connection failed. Please check your internet connection and try again."
       )
       .with(
         ErrorType.FILE_SYSTEM_ERROR,
-        () => 'File operation failed. Please check file permissions and try again.'
+        () =>
+          "File operation failed. Please check file permissions and try again."
       )
       .with(
         ErrorType.GIT_ERROR,
-        () => 'Git operation failed. Please ensure you are in a valid git repository.'
+        () =>
+          "Git operation failed. Please ensure you are in a valid git repository."
       )
       .with(
         ErrorType.AI_SERVICE_ERROR,
-        () => 'AI service failed. Please check your API key and try again.'
+        () => "AI service failed. Please check your API key and try again."
       )
       .with(
         ErrorType.CONFIG_ERROR,
-        () => 'Configuration error. Please run setup again or check your configuration.'
+        () =>
+          "Configuration error. Please run setup again or check your configuration."
       )
       .with(
         ErrorType.TIMEOUT_ERROR,
-        () => 'Operation timed out. Please try again with a smaller file or check your connection.'
+        () =>
+          "Operation timed out. Please try again with a smaller file or check your connection."
       )
-      .otherwise(() => 'An unexpected error occurred. Please try again.');
+      .otherwise(() => "An unexpected error occurred. Please try again.");
   }
 }
 
@@ -84,7 +90,10 @@ export class ErrorHandler {
     return ErrorHandler.instance;
   }
 
-  public handleError = (error: unknown, context: ErrorContext = {}): SecureError => {
+  public handleError = (
+    error: unknown,
+    context: ErrorContext = {}
+  ): SecureError => {
     let secureError: SecureError;
 
     if (error instanceof SecureError) {
@@ -99,14 +108,29 @@ export class ErrorHandler {
     return secureError;
   };
 
-  private readonly createSecureError = (error: unknown, context: ErrorContext): SecureError => {
-    const message = (error as Error)?.message ?? 'Unknown error occurred';
+  private readonly createSecureError = (
+    error: unknown,
+    context: ErrorContext
+  ): SecureError => {
+    const message = (error as Error)?.message ?? "Unknown error occurred";
     const sanitizedMessage = sanitizeError(message);
 
     // Use pattern matching for error type detection
     const errorType = match((error as { code?: string })?.code)
-      .with('ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'EISDIR', () => ErrorType.FILE_SYSTEM_ERROR)
-      .with('ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', () => ErrorType.NETWORK_ERROR)
+      .with(
+        "ENOENT",
+        "EACCES",
+        "EPERM",
+        "ENOTDIR",
+        "EISDIR",
+        () => ErrorType.FILE_SYSTEM_ERROR
+      )
+      .with(
+        "ECONNREFUSED",
+        "ENOTFOUND",
+        "ETIMEDOUT",
+        () => ErrorType.NETWORK_ERROR
+      )
       .otherwise(() => this.detectErrorTypeFromMessage(message));
 
     const isRecoverable = match(errorType)
@@ -126,11 +150,13 @@ export class ErrorHandler {
     return new SecureError(sanitizedMessage, errorType, context, isRecoverable);
   };
 
-  private readonly detectErrorTypeFromMessage = (message: string): ErrorType => {
+  private readonly detectErrorTypeFromMessage = (
+    message: string
+  ): ErrorType => {
     const lowerMsg = message.toLowerCase();
 
     for (const { type, patterns } of ERROR_PATTERNS) {
-      if (patterns.some((pattern) => lowerMsg.includes(pattern))) {
+      if (patterns.some(pattern => lowerMsg.includes(pattern))) {
         return type;
       }
     }
@@ -153,40 +179,57 @@ export class ErrorHandler {
     console.error(color(`❌ ${error.userMessage}`));
 
     if (error.context.operation) {
-      console.error(chalk.gray(`   Operation: ${error.context.operation}`));
+      console.error(
+        lightColors.gray(`   Operation: ${error.context.operation}`)
+      );
     }
 
     if (error.context.file) {
-      console.error(chalk.gray(`   File: ${error.context.file}`));
+      console.error(lightColors.gray(`   File: ${error.context.file}`));
     }
 
     if (error.isRecoverable) {
-      console.error(chalk.yellow('   💡 This error might be recoverable. Please try again.'));
+      console.error(
+        lightColors.yellow(
+          "   💡 This error might be recoverable. Please try again."
+        )
+      );
     }
   };
 
-  private readonly getErrorColor = (type: ErrorType): ((text: string) => string) => {
+  private readonly getErrorColor = (
+    type: ErrorType
+  ): ((text: string) => string) => {
     return match(type)
-      .with(ErrorType.SECURITY_ERROR, () => chalk.red)
-      .with(ErrorType.VALIDATION_ERROR, ErrorType.CONFIG_ERROR, () => chalk.yellow)
+      .with(ErrorType.SECURITY_ERROR, () => lightColors.red)
+      .with(
+        ErrorType.VALIDATION_ERROR,
+        ErrorType.CONFIG_ERROR,
+        () => lightColors.yellow
+      )
       .with(
         ErrorType.NETWORK_ERROR,
         ErrorType.TIMEOUT_ERROR,
         ErrorType.AI_SERVICE_ERROR,
-        () => chalk.blue
+        () => lightColors.blue
       )
-      .with(ErrorType.FILE_SYSTEM_ERROR, () => chalk.cyan)
-      .with(ErrorType.GIT_ERROR, () => chalk.green)
-      .otherwise(() => chalk.red);
+      .with(ErrorType.FILE_SYSTEM_ERROR, () => lightColors.cyan)
+      .with(ErrorType.GIT_ERROR, () => lightColors.green)
+      .otherwise(() => lightColors.red);
   };
 
-  public getErrorStats = (): { total: number; byType: Record<string, number>; recent: number } => {
+  public getErrorStats = (): {
+    total: number;
+    byType: Record<string, number>;
+    recent: number;
+  } => {
     const byType: Record<string, number> = {};
     const recent = this.errorLog.filter(
-      (entry) => Date.now() - entry.timestamp.getTime() < RECENT_ERROR_THRESHOLD_MS // Last 24 hours
+      entry =>
+        Date.now() - entry.timestamp.getTime() < RECENT_ERROR_THRESHOLD_MS // Last 24 hours
     ).length;
 
-    this.errorLog.forEach((entry) => {
+    this.errorLog.forEach(entry => {
       byType[entry.error.type] = (byType[entry.error.type] || 0) + 1;
     });
 
@@ -197,10 +240,13 @@ export class ErrorHandler {
     };
   };
 
-
   public handleProcessExit = (code: number = 1): void => {
     if (this.errorLog.length > 0) {
-      console.error(chalk.gray(`\n📊 Error Summary: ${this.errorLog.length} errors logged`));
+      console.error(
+        lightColors.gray(
+          `\n📊 Error Summary: ${this.errorLog.length} errors logged`
+        )
+      );
     }
     process.exit(code);
   };
@@ -216,7 +262,7 @@ export const withErrorHandling = <T>(
     const result = operation();
 
     if (result instanceof Promise) {
-      return result.catch((error) => {
+      return result.catch(error => {
         const secureError = errorHandler.handleError(error, context);
 
         if (!secureError.isRecoverable) {
@@ -263,10 +309,14 @@ export const withRetry = async <T>(
       }
 
       const delay = baseDelay * Math.pow(2, attempt - 1);
-      console.log(chalk.yellow(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`));
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      console.log(
+        lightColors.yellow(
+          `⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`
+        )
+      );
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
-  throw lastError ?? new Error('Retry failed with unknown error');
+  throw lastError ?? new Error("Retry failed with unknown error");
 };

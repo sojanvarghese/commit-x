@@ -1,19 +1,19 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import process from 'process';
-import { CommitConfigSchema, ApiKeySchema } from './schemas/validation.js';
-import type { CommitConfig } from './types/common.js';
-import { sanitizeError } from './utils/security.js';
-import { ErrorType } from './types/error-handler.js';
-import { ErrorHandler, withErrorHandling, SecureError } from './utils/error-handler.js';
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+import process from "process";
+import { CommitConfigSchema, ApiKeySchema } from "./schemas/validation.js";
+import type { CommitConfig } from "./types/common.js";
+import { sanitizeError } from "./utils/security.js";
+import { ErrorType } from "./types/error-handler.js";
+import { withErrorHandling, SecureError } from "./utils/error-handler.js";
 import {
   CONFIG_DIR as CONFIG_DIR_NAME,
   CONFIG_FILE as CONFIG_FILE_NAME,
   CONFIG_FILE_MODE,
   CONFIG_DIR_MODE,
   DEFAULT_CONFIG,
-} from './constants/config.js';
+} from "./constants/config.js";
 
 const CONFIG_DIR = path.join(os.homedir(), CONFIG_DIR_NAME);
 const CONFIG_FILE = path.join(CONFIG_DIR, CONFIG_FILE_NAME);
@@ -21,10 +21,8 @@ const CONFIG_FILE = path.join(CONFIG_DIR, CONFIG_FILE_NAME);
 export class ConfigManager {
   private static instance: ConfigManager;
   private config: CommitConfig;
-  private readonly errorHandler: ErrorHandler;
 
   private constructor() {
-    this.errorHandler = ErrorHandler.getInstance();
     this.config = this.loadConfig();
   }
 
@@ -43,7 +41,7 @@ export class ConfigManager {
       }
 
       if (fs.existsSync(CONFIG_FILE)) {
-        const configData = fs.readFileSync(CONFIG_FILE, 'utf-8');
+        const configData = fs.readFileSync(CONFIG_FILE, "utf-8");
         const userConfig = JSON.parse(configData);
 
         // Validate loaded configuration using Zod
@@ -51,11 +49,17 @@ export class ConfigManager {
         if (result.success) {
           return { ...DEFAULT_CONFIG, ...result.data };
         } else {
-          console.warn('Invalid config data, using defaults:', result.error.issues);
+          console.warn(
+            "Invalid config data, using defaults:",
+            result.error.issues
+          );
         }
       }
     } catch (error) {
-      console.warn('Failed to load config, using defaults:', sanitizeError(error));
+      console.warn(
+        "Failed to load config, using defaults:",
+        sanitizeError(error)
+      );
     }
 
     return DEFAULT_CONFIG;
@@ -68,9 +72,9 @@ export class ConfigManager {
         const result = CommitConfigSchema.partial().safeParse(config);
         if (!result.success) {
           throw new SecureError(
-            `Invalid configuration: ${result.error.issues.map((e: { message: string }) => e.message).join(', ')}`,
+            `Invalid configuration: ${result.error.issues.map((e: { message: string }) => e.message).join(", ")}`,
             ErrorType.VALIDATION_ERROR,
-            { operation: 'saveConfig' },
+            { operation: "saveConfig" },
             true
           );
         }
@@ -90,7 +94,7 @@ export class ConfigManager {
           mode: CONFIG_FILE_MODE,
         });
       },
-      { operation: 'saveConfig' }
+      { operation: "saveConfig" }
     );
   };
 
@@ -102,7 +106,10 @@ export class ConfigManager {
     return this.config[key];
   };
 
-  public set = async (key: keyof CommitConfig, value: unknown): Promise<void> => {
+  public set = async (
+    key: keyof CommitConfig,
+    value: unknown
+  ): Promise<void> => {
     await withErrorHandling(
       async (): Promise<void> => {
         // Validate the specific key-value pair using Zod
@@ -111,9 +118,9 @@ export class ConfigManager {
 
         if (!result.success) {
           throw new SecureError(
-            `Invalid value for ${key}: ${result.error.issues.map((e: { message: string }) => e.message).join(', ')}`,
+            `Invalid value for ${key}: ${result.error.issues.map((e: { message: string }) => e.message).join(", ")}`,
             ErrorType.VALIDATION_ERROR,
-            { operation: 'setConfig', key },
+            { operation: "setConfig", key },
             true
           );
         }
@@ -121,7 +128,7 @@ export class ConfigManager {
         this.config[key] = result.data[key];
         void this.saveConfig({});
       },
-      { operation: 'setConfig', key }
+      { operation: "setConfig", key }
     );
   };
 
@@ -144,7 +151,7 @@ export class ConfigManager {
       }
     }
 
-    return '';
+    return "";
   };
 
   public reset = (): void => {

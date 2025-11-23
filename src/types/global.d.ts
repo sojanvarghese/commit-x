@@ -13,27 +13,30 @@ declare global {
 }
 
 // Node.js built-in modules
-declare module 'fs' {
+declare module "fs" {
   export function readFileSync(path: string, encoding: string): string;
   export function writeFileSync(path: string, data: string): void;
   export function existsSync(path: string): boolean;
-  export function mkdirSync(path: string, options?: { recursive: boolean }): void;
+  export function mkdirSync(
+    path: string,
+    options?: { recursive: boolean }
+  ): void;
 }
 
-declare module 'path' {
+declare module "path" {
   export function join(...paths: string[]): string;
   export function dirname(path: string): string;
 }
 
-declare module 'url' {
+declare module "url" {
   export function fileURLToPath(url: string): string;
 }
 
-declare module 'os' {
+declare module "os" {
   export function homedir(): string;
 }
 
-declare module 'process' {
+declare module "process" {
   const process: {
     env: { [key: string]: string | undefined };
     stdin: { isTTY?: boolean };
@@ -43,7 +46,7 @@ declare module 'process' {
   export default process;
 }
 
-declare module 'simple-git' {
+declare module "simple-git" {
   export interface SimpleGit {
     status(): Promise<any>;
     diff(args?: string[]): Promise<string>;
@@ -65,35 +68,7 @@ declare module 'simple-git' {
   export default function simpleGit(): SimpleGit;
 }
 
-declare module 'chalk' {
-  interface Chalk {
-    red(text: string): string;
-    green(text: string): string;
-    yellow(text: string): string;
-    blue(text: string): string;
-    cyan(text: string): string;
-    gray(text: string): string;
-    grey(text: string): string;
-    white(text: string): string;
-    bold(text: string): string;
-  }
-
-  const chalk: Chalk;
-  export default chalk;
-}
-
-declare module 'ora' {
-  interface Ora {
-    start(): Ora;
-    succeed(text?: string): Ora;
-    fail(text?: string): Ora;
-    text: string;
-  }
-
-  export default function ora(text?: string): Ora;
-}
-
-declare module 'commander' {
+declare module "commander" {
   export class Command {
     name(name: string): this;
     description(description: string): this;
@@ -106,18 +81,4 @@ declare module 'commander' {
     on(event: string, callback: (...args: any[]) => void): this;
     args: string[];
   }
-}
-
-declare module 'inquirer' {
-  interface Question {
-    type: string;
-    name: string;
-    message: string;
-    choices?: Array<{ name: string; value: any; short?: string }>;
-    default?: any;
-    validate?: (input: any) => boolean | string;
-    pageSize?: number;
-  }
-
-  export function prompt(questions: Question[]): Promise<any>;
 }

@@ -12,24 +12,18 @@ export default defineConfig({
   splitting: true, // Enable code splitting for better chunk loading
   treeshake: true,
   external: [
-    // Keep these as external dependencies
     '@google/genai',
-    'chalk',
     'commander',
-    'inquirer',
-    'ora',
     'simple-git',
     'gradient-string',
     'ts-pattern',
     'zod',
   ],
   esbuildOptions(options) {
-    // Enable advanced optimizations
     options.treeShaking = true;
     options.minifyIdentifiers = true;
     options.minifySyntax = true;
     options.minifyWhitespace = true;
-    // Optimize for size and startup time
     options.mangleProps = /^_/;
   },
   onSuccess: 'echo "Build completed successfully!"',

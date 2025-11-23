@@ -36,11 +36,13 @@ export interface CommitOptions {
   all?: boolean; // Stage all files and commit together (traditional workflow)
 }
 
-export interface PlaywrightPatterns {
-  isPOM: boolean;
-  isSpec: boolean;
-  isFixture: boolean;
-  isConfig: boolean;
-  isUtil: boolean;
-  testType: 'unit' | 'integration' | 'e2e' | 'unknown';
+export interface CommitGroup {
+  files: string[];
+  message: string;
+  description?: string;
+  confidence: number;
+}
+
+export interface AggregatedCommitResponse {
+  groups: CommitGroup[];
 }
