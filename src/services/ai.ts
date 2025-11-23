@@ -20,6 +20,7 @@ import {
   AI_RETRY_ATTEMPTS,
   AI_RETRY_DELAY_MS,
   AI_DEFAULT_MODEL,
+  AI_FALLBACK_MODEL,
 } from "../constants/ai.js";
 import { ERROR_MESSAGES } from "../constants/messages.js";
 import { UI_CONSTANTS, COMMIT_MESSAGE_PATTERNS } from "../constants/ui.js";
@@ -80,15 +81,7 @@ export class AIService {
         `⚠️  Privacy Notice: ${privacyReport.sanitizedFiles} files were sanitized before sending to AI`
       );
       if (privacyReport.warnings.length > 0) {
-        console.warn("   Warnings:");
-        privacyReport.warnings.slice(0, 5).forEach((warning, index) => {
-          console.warn(`   ${index + 1}. ${warning}`);
-        });
-        if (privacyReport.warnings.length > 5) {
-          console.warn(
-            `   ... and ${privacyReport.warnings.length - 5} more warnings`
-          );
-        }
+        console.warn(`   Warnings: ${privacyReport.warnings.join(" & ")}`);
       }
     }
   };
@@ -147,115 +140,132 @@ export class AIService {
     }
   };
 
+  private readonly executeAggregatedCommitGeneration = async (
+    diffs: GitDiff[],
+    modelName: string
+  ): Promise<AggregatedCommitResponse> => {
+    return withErrorHandling(
+      async () => {
+        if (!diffs || diffs.length === 0) {
+          throw new SecureError(
+            "No diffs provided for aggregated commits",
+            ErrorType.VALIDATION_ERROR,
+            { operation: "generateAggregatedCommits" },
+            true
+          );
+        }
+
+        // Filter out sensitive files and validate diffs
+        const { validatedDiffs } = this.validateAndFilterDiffs(diffs);
+
+        if (validatedDiffs.length === 0) {
+          throw new SecureError(
+            "No valid diffs after filtering",
+            ErrorType.VALIDATION_ERROR,
+            { operation: "generateAggregatedCommits" },
+            true
+          );
+        }
+
+        const { prompt, sanitizedDiffs } =
+          this.buildAggregatedPrompt(validatedDiffs);
+
+        if (prompt.length > DEFAULT_LIMITS.maxApiRequestSize) {
+          throw new SecureError(
+            `Prompt size ${prompt.length} exceeds limit of ${DEFAULT_LIMITS.maxApiRequestSize} characters`,
+            ErrorType.VALIDATION_ERROR,
+            { operation: "generateAggregatedCommits" },
+            true
+          );
+        }
+
+        // Check cache for aggregated requests too
+        const aggregatedCacheKey = `agg_${this.generateCacheKey(validatedDiffs)}`;
+        const cachedAggregated = await this.aiCache.get(aggregatedCacheKey);
+        if (cachedAggregated) {
+          // Convert cached suggestions back to aggregated format
+          return {
+            groups: [
+              {
+                files: validatedDiffs.map(d => d.file),
+                message:
+                  cachedAggregated[0]?.message ||
+                  this.generateFallbackMessage(validatedDiffs[0]),
+                description: cachedAggregated[0]?.description,
+                confidence: cachedAggregated[0]?.confidence || 0.7,
+              },
+            ],
+          };
+        }
+
+        const totalChanges = validatedDiffs.reduce(
+          (sum, diff) => sum + diff.additions + diff.deletions,
+          0
+        );
+
+        const aiTimeout = calculateAITimeout({
+          diffSize: prompt.length,
+          fileCount: validatedDiffs.length,
+          totalChanges,
+        });
+
+        const result = await this.requestBatcher.batch(
+          aggregatedCacheKey,
+          async () =>
+            withTimeout(
+              this.genAI.models.generateContent({
+                model: modelName,
+                contents: prompt,
+              }),
+              aiTimeout
+            )
+        );
+
+        const aggregatedResult = this.parseAggregatedResponse(
+          result.text ?? "",
+          validatedDiffs,
+          sanitizedDiffs
+        );
+
+        // Cache the aggregated result (convert to suggestions format for caching)
+        if (aggregatedResult.groups.length > 0) {
+          const cacheableSuggestions: CommitSuggestion[] =
+            aggregatedResult.groups.map(group => ({
+              message: group.message,
+              description: group.description,
+              confidence: group.confidence || 0.7,
+            }));
+          void this.aiCache.set(aggregatedCacheKey, cacheableSuggestions);
+        }
+
+        return aggregatedResult;
+      },
+      { operation: "generateAggregatedCommits" }
+    );
+  };
+
   generateAggregatedCommits = async (
     diffs: GitDiff[]
   ): Promise<AggregatedCommitResponse> => {
-    return withRetry(
-      async () => {
-        return withErrorHandling(
-          async () => {
-            if (!diffs || diffs.length === 0) {
-              throw new SecureError(
-                "No diffs provided for aggregated commits",
-                ErrorType.VALIDATION_ERROR,
-                { operation: "generateAggregatedCommits" },
-                true
-              );
-            }
+    const primaryModel = this.getModelName();
 
-            // Filter out sensitive files and validate diffs
-            const { validatedDiffs } = this.validateAndFilterDiffs(diffs);
-
-            if (validatedDiffs.length === 0) {
-              throw new SecureError(
-                "No valid diffs after filtering",
-                ErrorType.VALIDATION_ERROR,
-                { operation: "generateAggregatedCommits" },
-                true
-              );
-            }
-
-            const modelName = this.getModelName();
-            const { prompt, sanitizedDiffs } =
-              this.buildAggregatedPrompt(validatedDiffs);
-
-            if (prompt.length > DEFAULT_LIMITS.maxApiRequestSize) {
-              throw new SecureError(
-                `Prompt size ${prompt.length} exceeds limit of ${DEFAULT_LIMITS.maxApiRequestSize} characters`,
-                ErrorType.VALIDATION_ERROR,
-                { operation: "generateAggregatedCommits" },
-                true
-              );
-            }
-
-            // Check cache for aggregated requests too
-            const aggregatedCacheKey = `agg_${this.generateCacheKey(validatedDiffs)}`;
-            const cachedAggregated = await this.aiCache.get(aggregatedCacheKey);
-            if (cachedAggregated) {
-              // Convert cached suggestions back to aggregated format
-              return {
-                groups: [
-                  {
-                    files: validatedDiffs.map(d => d.file),
-                    message:
-                      cachedAggregated[0]?.message ||
-                      this.generateFallbackMessage(validatedDiffs[0]),
-                    description: cachedAggregated[0]?.description,
-                    confidence: cachedAggregated[0]?.confidence || 0.7,
-                  },
-                ],
-              };
-            }
-
-            const totalChanges = validatedDiffs.reduce(
-              (sum, diff) => sum + diff.additions + diff.deletions,
-              0
-            );
-            const aiTimeout = calculateAITimeout({
-              diffSize: prompt.length,
-              fileCount: validatedDiffs.length,
-              totalChanges,
-            });
-
-            const result = await this.requestBatcher.batch(
-              aggregatedCacheKey,
-              async () =>
-                withTimeout(
-                  this.genAI.models.generateContent({
-                    model: modelName,
-                    contents: prompt,
-                  }),
-                  aiTimeout
-                )
-            );
-
-            const text = result.text ?? "";
-            const aggregatedResult = this.parseAggregatedResponse(
-              text,
-              validatedDiffs,
-              sanitizedDiffs
-            );
-
-            // Cache the aggregated result (convert to suggestions format for caching)
-            if (aggregatedResult.groups.length > 0) {
-              const cacheableSuggestions: CommitSuggestion[] =
-                aggregatedResult.groups.map(group => ({
-                  message: group.message,
-                  description: group.description,
-                  confidence: group.confidence || 0.7,
-                }));
-              void this.aiCache.set(aggregatedCacheKey, cacheableSuggestions);
-            }
-
-            return aggregatedResult;
-          },
-          { operation: "generateAggregatedCommits" }
-        );
-      },
-      AI_RETRY_ATTEMPTS,
-      AI_RETRY_DELAY_MS,
-      { operation: "generateAggregatedCommits" }
-    );
+    try {
+      return await withRetry(
+        async () => this.executeAggregatedCommitGeneration(diffs, primaryModel),
+        AI_RETRY_ATTEMPTS,
+        AI_RETRY_DELAY_MS,
+        { operation: "generateAggregatedCommits" }
+      );
+    } catch {
+      // If retry with primary model fails, try once with fallback model
+      console.warn(
+        `⚠️  Primary model (${primaryModel}) failed, attempting with fallback model (${AI_FALLBACK_MODEL})...`
+      );
+      return await this.executeAggregatedCommitGeneration(
+        diffs,
+        AI_FALLBACK_MODEL
+      );
+    }
   };
 
   private readonly buildAggregatedPrompt = (
