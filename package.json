@@ -1,6 +1,6 @@
 {
   "name": "@sojanvarghese/commit-x",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "AI-powered Git commit assistant that intelligently analyzes your code changes and generates clear, concise, and context-aware commit messages",
   "keywords": [
     "git",
