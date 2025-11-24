@@ -4,6 +4,7 @@ import { prompt } from "../utils/prompts.js";
 import process from "process";
 import { GitService } from "../services/git.js";
 import { AIService } from "../services/ai.js";
+import type { TimeoutCalculationOptions } from "../utils/timeout.js";
 import type {
   CommitOptions,
   CommitSuggestion,
@@ -197,9 +198,34 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
             ).start();
             const stagedFiles: string[] = [];
 
+            // Calculate timeout metrics for this group
+            const groupDiffs = allDiffs.filter(diff => group.files.includes(diff.file));
+            const totalChanges = groupDiffs.reduce(
+              (sum, diff) => sum + diff.additions + diff.deletions,
+              0
+            );
+            const totalDiffSize = groupDiffs.reduce(
+              (sum, diff) => sum + (diff.changes?.length || 0),
+              0
+            );
+            const fileCount = group.files.length;
+
+            const timeoutOptions: Omit<TimeoutCalculationOptions, "operationType"> = {
+              fileCount,
+              totalChanges,
+              diffSize: totalDiffSize,
+            };
+
+            // Debug logging for timeout calculation
+            if (process.env.DEBUG_TIMEOUTS || process.env.NODE_ENV === 'development') {
+              console.log(lightColors.gray(
+                `  🕒 Timeout metrics: ${fileCount} files, ${totalChanges} changes, ${Math.round(totalDiffSize/1024)}KB diff`
+              ));
+            }
+
             for (const file of group.files) {
               try {
-                await this.gitService.stageFile(file);
+                await this.gitService.stageFile(file, timeoutOptions);
                 stagedFiles.push(file);
               } catch (error) {
                 console.warn(
@@ -216,7 +242,7 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
             }
 
             await this.gitService.waitForLockRelease();
-            await this.gitService.commit(group.message);
+            await this.gitService.commit(group.message, timeoutOptions);
 
             const actualGroupName =
               stagedFiles.length > 1

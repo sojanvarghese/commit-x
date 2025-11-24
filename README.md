@@ -13,6 +13,7 @@
 
 - **Intelligent Grouping** - Automatically groups related file changes into logical commits
 - **Smart Analysis** - Understands code changes and generates contextual commit messages
+- **Dynamic Timeouts** - Smart timeout calculations based on file size, changes, and complexity
 - **Intelligent Fallbacks** - Summary messages for large files, lock files, and build artifacts
 - **Security-First** - Path validation, input sanitization, and secure API key handling
 - **Fast & Reliable** - Optimized performance with retry logic and error recovery

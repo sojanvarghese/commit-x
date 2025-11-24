@@ -4,7 +4,7 @@ export const DEFAULT_LIMITS: ResourceLimits = {
   maxFileSize: 25 * 1024 * 1024, // 30 MB (based on average use cases)
   maxDiffSize: 100_000, // 100 KB (increased from 50 KB)
   maxApiRequestSize: 750_000, // ~750 KB (aligned with average TPM capacity)
-  timeoutMs: 25_000, // 15 seconds (middle ground from performance)
+  timeoutMs: 25_000, // 25 seconds (middle ground from performance)
 };
 
 export const ALLOWED_CONFIG_KEYS = ["apiKey", "model"];

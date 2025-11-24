@@ -9,7 +9,7 @@ import {
 } from "../utils/security.js";
 import { ErrorType } from "../types/error-handler.js";
 import { withErrorHandling, SecureError } from "../utils/error-handler.js";
-import { calculateGitTimeout } from "../utils/timeout.js";
+import { calculateGitTimeout, type TimeoutCalculationOptions } from "../utils/timeout.js";
 import { ERROR_MESSAGES } from "../constants/messages.js";
 import { UI_CONSTANTS } from "../constants/ui.js";
 
@@ -424,7 +424,10 @@ export class GitService {
     );
   };
 
-  stageFile = async (file: string): Promise<void> => {
+  stageFile = async (
+    file: string,
+    timeoutOptions?: Omit<TimeoutCalculationOptions, "operationType">
+  ): Promise<void> => {
     return withErrorHandling(
       async () => {
         const pathValidation = validateAndSanitizePath(
@@ -442,14 +445,20 @@ export class GitService {
 
         const sanitizedFile = pathValidation.sanitizedValue;
 
-        await withTimeout(this.git.add(sanitizedFile), calculateGitTimeout({}));
+        await withTimeout(
+          this.git.add(sanitizedFile),
+          calculateGitTimeout(timeoutOptions || {})
+        );
         this.clearCache(); // Clear cache after staging
       },
       { operation: "stageFile", file }
     );
   };
 
-  commit = async (message: string): Promise<void> => {
+  commit = async (
+    message: string,
+    timeoutOptions?: Omit<TimeoutCalculationOptions, "operationType">
+  ): Promise<void> => {
     return withErrorHandling(
       async () => {
         const messageValidation = validateCommitMessage(message);
@@ -466,7 +475,7 @@ export class GitService {
 
         await withTimeout(
           this.git.commit(sanitizedMessage),
-          calculateGitTimeout({})
+          calculateGitTimeout(timeoutOptions || {})
         );
         this.clearCache(); // Clear cache after commit
       },

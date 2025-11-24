@@ -18,7 +18,7 @@ export const calculateDynamicTimeout = (
   } = options;
 
   const baseTimeouts = {
-    git: 15000, // 15 seconds for git operations
+    git: 25000, // 25 seconds for git operations
     ai: 20000, // 20 seconds for AI operations
     file: 10000, // 10 seconds for file operations
   };
@@ -53,6 +53,11 @@ export const calculateDynamicTimeout = (
 
   timeout = Math.min(timeout, maxTimeouts[operationType]);
   timeout = Math.max(timeout, baseTimeouts[operationType]);
+
+  // Debug logging for timeout calculation
+  if (process.env.DEBUG_TIMEOUTS || process.env.NODE_ENV === 'development') {
+    console.log(`🕒 Calculated ${operationType} timeout: ${timeout}ms (base: ${baseTimeouts[operationType]}ms, files: ${fileCount}, changes: ${totalChanges}, diffSize: ${Math.round(diffSize/1024)}KB)`);
+  }
 
   return timeout;
 };
