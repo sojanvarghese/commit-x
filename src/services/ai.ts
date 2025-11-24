@@ -296,6 +296,8 @@ export class AIService {
         "- Unrelated modifications that don't fit any grouping pattern",
         "- Files with mixed types of changes (keep focused commits)",
         "**Message Guidelines:**",
+        `- DO NOT use conventional commit format prefixes: ${COMMIT_MESSAGE_PATTERNS.AVOID_PREFIXES.join(", ")}`,
+        "- DO NOT include type/scope prefixes like 'Refactor(Playwright):', 'Feat(auth):', 'Fix(api):', etc.",
         '- Group messages: "Updated package to v2.34 and dependencies" or "Made page parameter optional across entities"',
         "- Individual messages: Follow existing 3-20 word descriptive format",
         "- Use past tense action verbs (Implemented, Added, Updated, etc.)",
@@ -407,6 +409,22 @@ export class AIService {
             reason_for_badness:
               "Dependency files should always be grouped together as they represent a single logical change.",
           },
+          {
+            scenario: "Using conventional commit format prefixes",
+            input_files: ["admin.spec.ts", "profile.spec.ts"],
+            bad_output: {
+              groups: [
+                {
+                  files: ["admin.spec.ts", "profile.spec.ts"],
+                  message: "Refactor(Playwright): Updated active link assertions",
+                },
+              ],
+            },
+            reason_for_badness:
+              "Messages should not include conventional commit format prefixes like 'Refactor(Playwright):' or type/scope prefixes.",
+            better_approach:
+              "Use simple descriptive messages: 'Updated active link assertions in admin and profile tests'",
+          },
         ],
       },
       input_files: sanitizedDiffs.map((diff, index) => ({
@@ -470,6 +488,8 @@ export class AIService {
           "Groups should have 1-7 files (prefer smaller logical groups)",
           "Dependency files (package.json, lock files) MUST be grouped together if present",
           "Messages must be descriptive and specific to the grouped changes",
+          `Messages MUST NOT include conventional commit format prefixes (${COMMIT_MESSAGE_PATTERNS.AVOID_PREFIXES.join(", ")}) or type/scope prefixes`,
+          "Messages should be simple sentences starting with action verbs (e.g., 'Updated admin panel assertions' not 'Refactor(Playwright): Updated admin panel assertions')",
           "Confidence should reflect how certain you are about the grouping logic",
         ],
       },

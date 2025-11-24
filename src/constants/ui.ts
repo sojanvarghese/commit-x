@@ -32,7 +32,19 @@ export const UI_CONSTANTS = {
 } as const;
 
 export const COMMIT_MESSAGE_PATTERNS = {
-  AVOID_PREFIXES: ["feat:", "fix:", "chore:"],
+  AVOID_PREFIXES: [
+    "feat:",
+    "fix:",
+    "chore:",
+    "refactor:",
+    "test:",
+    "docs:",
+    "style:",
+    "perf:",
+    "ci:",
+    "build:",
+    "revert:",
+  ],
   NUMBERED_PATTERN: /^\d+\./,
   JSON_PATTERN: /\{[\s\S]*\}/,
 } as const;
