@@ -3,7 +3,7 @@
 [![NPM Downloads](https://badgen.net/npm/dw/@sojanvarghese/commit-x)](https://www.npmjs.com/package/@sojanvarghese/commit-x)
 [![Node.js](https://badgen.net/badge/node/22.0.0+/green)](https://nodejs.org/)
 [![TypeScript](https://badgen.net/badge/TypeScript/5.9.3/blue)](https://www.typescriptlang.org/)
-[![Yarn](https://badgen.net/badge/yarn/4.11.0+/blue)](https://yarnpkg.com/)
+[![Yarn](https://badgen.net/badge/yarn/4.12.0+/blue)](https://yarnpkg.com/)
 [![AI](https://badgen.net/badge/AI/Gemini/4285F4)](https://ai.google.dev/)
 [![CLI](https://badgen.net/badge/CLI/Tool/green)](https://en.wikipedia.org/wiki/Command-line_interface)
 
