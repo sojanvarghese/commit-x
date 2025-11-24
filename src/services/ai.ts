@@ -24,6 +24,7 @@ import {
 } from "../constants/ai.js";
 import { ERROR_MESSAGES } from "../constants/messages.js";
 import { UI_CONSTANTS, COMMIT_MESSAGE_PATTERNS } from "../constants/ui.js";
+import { lightColors } from "../utils/colors.js";
 import {
   sanitizeGitDiff,
   shouldSkipFileForAI,
@@ -296,12 +297,24 @@ export class AIService {
         "- Unrelated modifications that don't fit any grouping pattern",
         "- Files with mixed types of changes (keep focused commits)",
         "**Message Guidelines:**",
-        `- DO NOT use conventional commit format prefixes: ${COMMIT_MESSAGE_PATTERNS.AVOID_PREFIXES.join(", ")}`,
-        "- DO NOT include type/scope prefixes like 'Refactor(Playwright):', 'Feat(auth):', 'Fix(api):', etc.",
+        `- STRICTLY FORBIDDEN: Any conventional commit format prefixes including: ${COMMIT_MESSAGE_PATTERNS.AVOID_PREFIXES.join(", ")}`,
+        "- STRICTLY FORBIDDEN: Scoped conventional commit formats like 'feat(playwright):', 'refactor(auth):', 'fix(api):', 'chore(deps):', etc.",
+        "- STRICTLY FORBIDDEN: Any message starting with lowercase word followed by parentheses and colon: 'word(scope):'",
+        "- EXAMPLES OF FORBIDDEN FORMATS:",
+        "  ❌ feat(playwright): Adopt query-string for URL parameter generation",
+        "  ❌ refactor(auth): Moved getAddress utility to testData module",
+        "  ❌ fix(api): Updated error handling in service layer",
+        "  ❌ chore(deps): Updated package dependencies to latest versions",
+        "- CORRECT FORMAT EXAMPLES:",
+        "  ✅ Adopted query-string for URL parameter generation and removed custom utility",
+        "  ✅ Moved getAddress utility to testData module for better organization",
+        "  ✅ Updated error handling in service layer to prevent crashes",
+        "  ✅ Updated package dependencies to latest versions",
         '- Group messages: "Updated package to v2.34 and dependencies" or "Made page parameter optional across entities"',
         "- Individual messages: Follow existing 3-20 word descriptive format",
         "- Use past tense action verbs (Implemented, Added, Updated, etc.)",
         "- Be specific about what changed and why",
+        "- Start with capital letter, no period at end",
         "**Output Format:** Provide the response in JSON, following the specified structure.",
         "**Analysis:** Thoroughly analyze the provided `code_diffs` to infer relationships between file changes.",
         "**Grouping Focus:** Prioritize logical groupings that make sense to developers reviewing commit history.",
@@ -543,9 +556,24 @@ export class AIService {
         }
 
         if (validFiles.length > 0) {
+          const trimmedMessage = group.message.trim();
+          const validation = this.validateCommitMessageFormat(trimmedMessage);
+
+          // Use corrected message if validation provided one, or generate fallback if invalid
+          let finalMessage = trimmedMessage;
+          if (validation.correctedMessage) {
+            finalMessage = validation.correctedMessage;
+          } else if (!validation.isValid) {
+            console.log(lightColors.red(`❌ Rejecting invalid commit message format: "${trimmedMessage}"`));
+            // Generate fallback message for the first file in the group
+            const firstDiff = diffs.find(d => d.file === validFiles[0]);
+            finalMessage = firstDiff ? this.generateFallbackMessage(firstDiff) : "Updated files";
+            console.log(lightColors.blue(`  ✓ Using fallback message: "${finalMessage}"`));
+          }
+
           groups.push({
             files: validFiles,
-            message: group.message.trim(),
+            message: finalMessage,
             description: group.description?.trim(),
             confidence:
               typeof group.confidence === "number" ? group.confidence : 0.7,
@@ -573,5 +601,38 @@ export class AIService {
       console.warn("Failed to parse aggregated response:", error);
       throw new Error(`Failed to parse AI response: ${error}`);
     }
+  };
+
+  private readonly validateCommitMessageFormat = (message: string): { isValid: boolean; correctedMessage?: string } => {
+    if (!message || typeof message !== 'string') {
+      return { isValid: false };
+    }
+
+    const trimmedMessage = message.trim();
+    const hasSimplePrefix = COMMIT_MESSAGE_PATTERNS.AVOID_PREFIXES.some(prefix =>
+      trimmedMessage.toLowerCase().startsWith(prefix.toLowerCase())
+    );
+
+    if (hasSimplePrefix) {
+      console.log(lightColors.yellow(`⚠️  Detected conventional commit prefix in: "${trimmedMessage}"`));
+      return { isValid: false };
+    }
+
+    const hasConventionalPattern = COMMIT_MESSAGE_PATTERNS.CONVENTIONAL_COMMIT_PATTERNS.some(pattern =>
+      pattern.test(trimmedMessage)
+    );
+
+    if (hasConventionalPattern) {
+      console.log(lightColors.yellow(`⚠️  Detected conventional commit format in: "${trimmedMessage}"`));
+      const corrected = trimmedMessage.replace(/^[a-z]+(\([^)]*\))?:\s*/i, '');
+      if (corrected && corrected.length > 10) {
+        const correctedMessage = corrected.charAt(0).toUpperCase() + corrected.slice(1);
+        console.log(lightColors.blue(`  ✓ Corrected to: "${correctedMessage}"`));
+        return { isValid: true, correctedMessage };
+      }
+      return { isValid: false };
+    }
+
+    return { isValid: true };
   };
 }

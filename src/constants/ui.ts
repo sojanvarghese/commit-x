@@ -32,6 +32,7 @@ export const UI_CONSTANTS = {
 } as const;
 
 export const COMMIT_MESSAGE_PATTERNS = {
+  // Simple prefixes (original patterns)
   AVOID_PREFIXES: [
     "feat:",
     "fix:",
@@ -44,6 +45,21 @@ export const COMMIT_MESSAGE_PATTERNS = {
     "ci:",
     "build:",
     "revert:",
+  ],
+  // Regex patterns to catch scoped conventional commit formats like feat(scope):, refactor(component):
+  CONVENTIONAL_COMMIT_PATTERNS: [
+    /^feat\([^)]*\):/i,        // feat(scope):
+    /^fix\([^)]*\):/i,         // fix(scope):
+    /^chore\([^)]*\):/i,       // chore(scope):
+    /^refactor\([^)]*\):/i,    // refactor(scope):
+    /^test\([^)]*\):/i,        // test(scope):
+    /^docs\([^)]*\):/i,        // docs(scope):
+    /^style\([^)]*\):/i,       // style(scope):
+    /^perf\([^)]*\):/i,        // perf(scope):
+    /^ci\([^)]*\):/i,          // ci(scope):
+    /^build\([^)]*\):/i,       // build(scope):
+    /^revert\([^)]*\):/i,      // revert(scope):
+    /^[a-z]+\([^)]*\):/i,      // any lowercase word followed by (scope):
   ],
   NUMBERED_PATTERN: /^\d+\./,
   JSON_PATTERN: /\{[\s\S]*\}/,
