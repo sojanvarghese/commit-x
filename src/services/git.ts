@@ -315,25 +315,20 @@ export class GitService {
           );
         }
 
-        const diffs: GitDiff[] = [];
         const validatedFiles = this.validateFilePaths(status.staged);
+        const diffTimeout = calculateGitTimeout({ diffSize: 0 });
 
-        for (const file of validatedFiles) {
+        const diffPromises = validatedFiles.map(async (file): Promise<GitDiff | null> => {
           try {
-            const diffTimeout = calculateGitTimeout({ diffSize: 0 });
-            const diff = await withTimeout(
-              this.git.diff(["--cached", file]),
-              diffTimeout
-            );
-            const diffSummary = await withTimeout(
-              this.git.diffSummary(["--cached", file]),
-              diffTimeout
-            );
+            const [diff, diffSummary] = await Promise.all([
+              withTimeout(this.git.diff(["--cached", file]), diffTimeout),
+              withTimeout(this.git.diffSummary(["--cached", file]), diffTimeout),
+            ]);
 
             const diffValidation = validateDiffSize(diff);
             if (!diffValidation.isValid) {
               console.warn(`Diff too large for ${file}, skipping content`);
-              continue;
+              return null;
             }
 
             const fileSummary = diffSummary.files.find(
@@ -341,7 +336,7 @@ export class GitService {
                 f.file === file
             );
 
-            diffs.push({
+            return {
               file,
               additions: fileSummary?.insertions ?? 0,
               deletions: fileSummary?.deletions ?? 0,
@@ -355,13 +350,15 @@ export class GitService {
                 status.renamed.find(
                   (r: { to: string; from: string }) => r.to === file
                 )?.from ?? undefined,
-            });
+            };
           } catch (error) {
             console.warn(`Failed to get diff for ${file}:`, error);
+            return null;
           }
-        }
+        });
 
-        return diffs;
+        const results = await Promise.all(diffPromises);
+        return results.filter((diff): diff is GitDiff => diff !== null);
       },
       { operation: "getStagedDiff" }
     );
