@@ -168,7 +168,7 @@ export class ErrorHandler {
     this.errorLog.push({ error, timestamp: new Date() });
 
     if (this.errorLog.length > ERROR_LOG_LIMIT) {
-      this.errorLog = this.errorLog.slice(-ERROR_LOG_LIMIT);
+      this.errorLog.shift();
     }
 
     // Development mode removed - error details logging disabled
@@ -216,28 +216,6 @@ export class ErrorHandler {
       .with(ErrorType.FILE_SYSTEM_ERROR, () => lightColors.cyan)
       .with(ErrorType.GIT_ERROR, () => lightColors.green)
       .otherwise(() => lightColors.red);
-  };
-
-  public getErrorStats = (): {
-    total: number;
-    byType: Record<string, number>;
-    recent: number;
-  } => {
-    const byType: Record<string, number> = {};
-    const recent = this.errorLog.filter(
-      entry =>
-        Date.now() - entry.timestamp.getTime() < RECENT_ERROR_THRESHOLD_MS // Last 24 hours
-    ).length;
-
-    this.errorLog.forEach(entry => {
-      byType[entry.error.type] = (byType[entry.error.type] || 0) + 1;
-    });
-
-    return {
-      total: this.errorLog.length,
-      byType,
-      recent,
-    };
   };
 
   public handleProcessExit = (code: number = 1): void => {

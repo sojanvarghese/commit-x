@@ -69,7 +69,3 @@ export const calculateGitTimeout = (
 export const calculateAITimeout = (
   options: Omit<TimeoutCalculationOptions, "operationType">
 ): number => calculateDynamicTimeout({ ...options, operationType: "ai" });
-
-export const calculateFileTimeout = (
-  options: Omit<TimeoutCalculationOptions, "operationType">
-): number => calculateDynamicTimeout({ ...options, operationType: "file" });

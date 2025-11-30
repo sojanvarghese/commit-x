@@ -3,14 +3,11 @@ import * as fs from "fs";
 import { promisify } from "util";
 import type { ValidationResult } from "../types/security.js";
 import {
-  ALLOWED_CONFIG_KEYS,
-  ALLOWED_MODELS,
   DEFAULT_LIMITS,
   SUSPICIOUS_COMMIT_PATTERNS,
   SUSPICIOUS_PATTERNS,
 } from "../constants/security.js";
 
-const stat = promisify(fs.stat);
 const access = promisify(fs.access);
 
 export const validateAndSanitizePath = (
@@ -51,87 +48,6 @@ export const validateAndSanitizePath = (
       isValid: false,
       error: `Path validation error: ${error}`,
     };
-  }
-};
-
-export const validateFileSize = async (
-  filePath: string,
-  maxSize: number = DEFAULT_LIMITS.maxFileSize
-): Promise<ValidationResult> => {
-  try {
-    const stats = await stat(filePath);
-
-    if (stats.size > maxSize) {
-      return {
-        isValid: false,
-        error: `File size ${stats.size} bytes exceeds limit of ${maxSize} bytes`,
-      };
-    }
-
-    return {
-      isValid: true,
-      sanitizedValue: filePath,
-    };
-  } catch (error) {
-    return {
-      isValid: false,
-      error: `File size validation error: ${error}`,
-    };
-  }
-};
-
-export const validateConfigKey = (key: string): ValidationResult => {
-  if (!key || typeof key !== "string") {
-    return {
-      isValid: false,
-      error: "Configuration key must be a non-empty string",
-    };
-  }
-
-  if (!ALLOWED_CONFIG_KEYS.includes(key)) {
-    return {
-      isValid: false,
-      error: `Invalid configuration key: ${key}. Allowed keys: ${ALLOWED_CONFIG_KEYS.join(", ")}`,
-    };
-  }
-
-  return {
-    isValid: true,
-    sanitizedValue: key,
-  };
-};
-
-export const validateConfigValue = (
-  key: string,
-  value: any
-): ValidationResult => {
-  switch (key) {
-    case "apiKey":
-      if (typeof value !== "string" || value.length < 10) {
-        return {
-          isValid: false,
-          error: "API key must be a string with at least 10 characters",
-        };
-      }
-      return {
-        isValid: true,
-        sanitizedValue: value.trim(),
-      };
-
-    case "model":
-      if (!ALLOWED_MODELS.includes(value)) {
-        return {
-          isValid: false,
-          error: `Invalid model: ${value}. Allowed models: ${ALLOWED_MODELS.join(", ")}`,
-        };
-      }
-      return { isValid: true, sanitizedValue: value };
-
-    default:
-      return {
-        isValid: false,
-        error: `Unknown configuration key: ${key}`,
-      };
   }
 };
 
@@ -213,77 +129,7 @@ export const withTimeout = <T>(
   ]);
 };
 
-export const safeReadFile = async (
-  filePath: string,
-  baseDir: string,
-  maxSize: number = DEFAULT_LIMITS.maxFileSize
-): Promise<{ content: string; error?: string }> => {
-  try {
-    const pathValidation = validateAndSanitizePath(filePath, baseDir);
-    if (!pathValidation.isValid) {
-      return { content: "", error: pathValidation.error };
-    }
-
-    const sizeValidation = await validateFileSize(
-      pathValidation.sanitizedValue!,
-      maxSize
-    );
-    if (!sizeValidation.isValid) {
-      return { content: "", error: sizeValidation.error };
-    }
-
-    const content = await withTimeout(
-      promisify(fs.readFile)(pathValidation.sanitizedValue!, "utf-8"),
-      DEFAULT_LIMITS.timeoutMs
-    );
-
-    return { content };
-  } catch (error) {
-    return {
-      content: "",
-      error: `Failed to read file: ${error}`,
-    };
-  }
-};
-
-export const validateApiKey = (apiKey: string): ValidationResult => {
-  if (!apiKey || typeof apiKey !== "string") {
-    return {
-      isValid: false,
-      error: "API key must be a non-empty string",
-    };
-  }
-
-  const trimmed = apiKey.trim();
-
-  if (trimmed.length < 10) {
-    return {
-      isValid: false,
-      error: "API key must be at least 10 characters long",
-    };
-  }
-
-  if (trimmed.length > 200) {
-    return {
-      isValid: false,
-      error: "API key must be 200 characters or less",
-    };
-  }
-
-  if (!/^[A-Za-z0-9_-]+$/.test(trimmed)) {
-    return {
-      isValid: false,
-      error: "API key contains invalid characters",
-    };
-  }
-
-  return {
-    isValid: true,
-    sanitizedValue: trimmed,
-  };
-};
-
-export const sanitizeError = (error: any): string => {
+export const sanitizeError = (error: unknown): string => {
   if (typeof error === "string") {
     return error
       .replace(/api[_-]?key[=:]\s*[^\s]+/gi, "api_key=***")

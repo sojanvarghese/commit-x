@@ -6,20 +6,11 @@ export const UI_CONSTANTS = {
   MIN_WORD_COUNT: 7,
   DIFF_CONTENT_TRUNCATE_LIMIT: 3000,
   PAGE_SIZE: 10,
-  CONFIDENCE_DECREASE: 0.4,
-  CONFIDENCE_MIN: 0.3,
-  CONFIDENCE_DEFAULT: 0.8,
-  CONFIDENCE_FALLBACK: 0.3,
   FILE_STATUS: {
     NEW: "[NEW]",
     DELETED: "[DELETED]",
     RENAMED: "[RENAMED]",
     MODIFIED: "[MODIFIED]",
-  },
-  GIT_STATUS: {
-    STAGED: "A",
-    MODIFIED: "M",
-    UNTRACKED: "??",
   },
   SPINNER_MESSAGES: {
     STAGING: "Staging files...",
@@ -61,6 +52,5 @@ export const COMMIT_MESSAGE_PATTERNS = {
     /^revert\([^)]*\):/i,      // revert(scope):
     /^[a-z]+\([^)]*\):/i,      // any lowercase word followed by (scope):
   ],
-  NUMBERED_PATTERN: /^\d+\./,
   JSON_PATTERN: /\{[\s\S]*\}/,
 } as const;

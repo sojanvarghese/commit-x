@@ -17,7 +17,6 @@ const colors = {
   cyan: (text: string) => `${ESC}36${END}${text}${RESET}`,
   white: (text: string) => `${ESC}37${END}${text}${RESET}`,
   gray: (text: string) => `${ESC}90${END}${text}${RESET}`,
-  grey: (text: string) => `${ESC}90${END}${text}${RESET}`,
 
   // Bright colors
   brightRed: (text: string) => `${ESC}91${END}${text}${RESET}`,
@@ -70,7 +69,6 @@ export const lightColors = {
   cyan: createColorFunction(colors.cyan),
   white: createColorFunction(colors.white),
   gray: createColorFunction(colors.gray),
-  grey: createColorFunction(colors.grey),
 
   bold: createColorFunction(colors.bold),
   dim: createColorFunction(colors.dim),
@@ -88,9 +86,6 @@ export const lightColors = {
     // eslint-disable-next-line no-control-regex
     return text.replace(/\x1b\[[0-9;]*m/g, "");
   },
-
-  // Check if colors are supported
-  supportsColor: !isColorDisabled(),
 };
 
 // Default export for drop-in replacement

@@ -198,39 +198,13 @@ export const createPrivacyReport = (
   totalFiles: number;
   sanitizedFiles: number;
   warnings: string[];
-  recommendations: string[];
 } => {
   const sanitizedFiles = sanitizedDiffs.filter(diff => diff.sanitized).length;
   const allWarnings = sanitizedDiffs.flatMap(diff => diff.warnings);
-
-  const recommendations: string[] = [];
-
-  if (sanitizedFiles > 0) {
-    recommendations.push(
-      "Consider using .gitignore to exclude sensitive files from version control"
-    );
-    recommendations.push(
-      "Use environment variables for sensitive configuration"
-    );
-    recommendations.push("Review sanitized content before committing");
-  }
-
-  if (allWarnings.some(w => w.includes("API key") || w.includes("token"))) {
-    recommendations.push(
-      "Ensure API keys are stored in environment variables, not in code"
-    );
-  }
-
-  if (allWarnings.some(w => w.includes("password"))) {
-    recommendations.push(
-      "Use secure password management solutions instead of hardcoded passwords"
-    );
-  }
 
   return {
     totalFiles: sanitizedDiffs.length,
     sanitizedFiles,
     warnings: [...new Set(allWarnings)],
-    recommendations,
   };
 };
