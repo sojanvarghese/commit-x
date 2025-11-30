@@ -20,7 +20,9 @@ export interface AICache {
   get(key: string): Promise<CommitSuggestion[] | null>;
   set(key: string, suggestions: CommitSuggestion[]): Promise<void>;
   generateKey(diffs: GitDiff[]): string;
+  /** @internal */
   clear(): Promise<void>;
+  /** @internal */
   getStats(): Promise<{ size: number; hitRate: number }>;
 }
 
@@ -182,11 +184,13 @@ export class PersistentAICache implements AICache {
     );
   }
 
+  /** @internal */
   async clear(): Promise<void> {
     this.memoryCache.clear();
     // Note: Not clearing disk cache to preserve across sessions
   }
 
+  /** @internal */
   async getStats(): Promise<{ size: number; hitRate: number }> {
     const total = this.stats.hits + this.stats.misses;
     const hitRate = total > 0 ? this.stats.hits / total : 0;
@@ -198,18 +202,16 @@ export class PersistentAICache implements AICache {
   }
 }
 
-// Request batching and deduplication
+// Request deduplication (prevents duplicate concurrent requests)
 export class RequestBatcher {
   private readonly pendingRequests = new Map<
     string,
     Promise<CommitSuggestion[]>
   >();
-  private readonly batchTimeout = 50; // 50ms batch window
 
   async batch<T>(
     key: string,
-    requestFn: () => Promise<T>,
-    timeoutMs: number = this.batchTimeout
+    requestFn: () => Promise<T>
   ): Promise<T> {
     // Check if we already have a pending request for this key
     const existing = this.pendingRequests.get(key);
@@ -217,28 +219,22 @@ export class RequestBatcher {
       return existing as unknown as T;
     }
 
-    // Create a new batched request
-    const promise = new Promise<T>((resolve, reject) => {
-      setTimeout(async () => {
-        try {
-          const result = await requestFn();
-          this.pendingRequests.delete(key);
-          resolve(result);
-        } catch (error) {
-          this.pendingRequests.delete(key);
-          reject(error);
-        }
-      }, timeoutMs);
-    });
+    // Create a new request with deduplication
+    const promise = (async (): Promise<T> => {
+      try {
+        const result = await requestFn();
+        this.pendingRequests.delete(key);
+        return result;
+      } catch (error) {
+        this.pendingRequests.delete(key);
+        throw error;
+      }
+    })();
 
     this.pendingRequests.set(
       key,
       promise as unknown as Promise<CommitSuggestion[]>
     );
     return promise;
-  }
-
-  clear(): void {
-    this.pendingRequests.clear();
   }
 }
