@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { ALLOWED_MODELS } from "../constants/security.js";
+import { AI_DEFAULT_MODEL } from "../constants/ai.js";
 
 // Base validation schemas
 export const ApiKeySchema = z
@@ -8,16 +10,10 @@ export const ApiKeySchema = z
   .regex(/^[A-Za-z0-9_-]+$/, "API key contains invalid characters")
   .transform(val => val.trim());
 
-export const ModelSchema = z.enum([
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-3.1-flash-lite",
-]);
-
 // Configuration schema
 export const CommitConfigSchema = z.object({
   apiKey: ApiKeySchema.optional(),
-  model: ModelSchema.default("gemini-2.5-flash"),
+  model: z.enum(ALLOWED_MODELS).default(AI_DEFAULT_MODEL),
 });
 
 // Git diff schema

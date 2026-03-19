@@ -8,12 +8,10 @@ export const DEFAULT_LIMITS: ResourceLimits = {
 };
 
 export const ALLOWED_CONFIG_KEYS = ["apiKey", "model"];
-
 export const ALLOWED_MODELS = [
-  "gemini-2.0-flash", // Gemini 2.0 Flash	15	1,000,000	200
-  "gemini-2.0-flash-lite", // Gemini 2.0 Flash-Lite	30	1,000,000	200
-  "gemini-2.5-pro", // Gemini 2.5 Pro	5	250,000	100
-  "gemini-2.5-flash", // Gemini 2.5 Flash	10	250,000	250
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-3.1-flash-lite",
 ];
 
 export const SUSPICIOUS_PATTERNS = [
