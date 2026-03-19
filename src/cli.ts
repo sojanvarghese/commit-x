@@ -13,7 +13,7 @@ import { lazyModules, preloadCriticalModules } from "./utils/lazy-loader.js";
 import { PERFORMANCE_FLAGS } from "./constants/performance.js";
 
 // Start background preloading of critical modules
-preloadCriticalModules();
+preloadCriticalModules(process.argv[2]);
 
 // Log startup time
 if (PERFORMANCE_FLAGS.ENABLE_PERFORMANCE_MONITORING) {

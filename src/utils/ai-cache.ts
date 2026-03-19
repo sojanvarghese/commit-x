@@ -10,7 +10,7 @@ const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
 export interface CacheEntry {
-  suggestions: CommitSuggestion[];
+  suggestions: CommitSuggestion[] | string;
   timestamp: number;
   version: string;
   compressed: boolean;
@@ -85,6 +85,25 @@ export class PersistentAICache implements AICache {
       .substring(0, 8);
   }
 
+  private async readSuggestions(
+    entry: CacheEntry
+  ): Promise<CommitSuggestion[] | null> {
+    if (entry.compressed) {
+      if (typeof entry.suggestions !== "string") {
+        return null;
+      }
+
+      const decompressed = await gunzipAsync(
+        Buffer.from(entry.suggestions, "base64")
+      );
+
+      const parsedSuggestions = JSON.parse(decompressed.toString());
+      return Array.isArray(parsedSuggestions) ? parsedSuggestions : null;
+    }
+
+    return Array.isArray(entry.suggestions) ? entry.suggestions : null;
+  }
+
   async get(key: string): Promise<CommitSuggestion[] | null> {
     try {
       // Check memory cache first
@@ -112,14 +131,9 @@ export class PersistentAICache implements AICache {
           return null;
         }
 
-        let suggestions = entry.suggestions;
-
-        // Decompress if needed
-        if (entry.compressed && typeof suggestions === "string") {
-          const decompressed = await gunzipAsync(
-            Buffer.from(suggestions as unknown as string, "base64")
-          );
-          suggestions = JSON.parse(decompressed.toString());
+        const suggestions = await this.readSuggestions(entry);
+        if (!suggestions || suggestions.length === 0) {
+          return null;
         }
 
         // Store in memory cache for faster access
@@ -179,8 +193,9 @@ export class PersistentAICache implements AICache {
     return (
       entry.version === this.version &&
       entry.timestamp > Date.now() - this.maxAge &&
-      Array.isArray(entry.suggestions) &&
-      entry.suggestions.length > 0
+      (entry.compressed
+        ? typeof entry.suggestions === "string"
+        : Array.isArray(entry.suggestions))
     );
   }
 

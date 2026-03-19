@@ -1,4 +1,5 @@
 import simpleGit, { type SimpleGit } from "simple-git";
+import { access, readFile } from "fs/promises";
 import type { GitDiff, GitStatus } from "../types/common.js";
 import {
   validateAndSanitizePath,
@@ -13,6 +14,9 @@ import { calculateGitTimeout, type TimeoutCalculationOptions } from "../utils/ti
 import { ERROR_MESSAGES } from "../constants/messages.js";
 import { UI_CONSTANTS } from "../constants/ui.js";
 
+type RawGitStatus = Awaited<ReturnType<SimpleGit["status"]>>;
+type DiffSummaryFile = { file: string; insertions?: number; deletions?: number };
+
 // Simple cache for Git operations
 interface GitCache {
   status?: { data: GitStatus; timestamp: number };
@@ -24,6 +28,7 @@ export class GitService {
   private repositoryPath: string;
   private cache: GitCache = {};
   private readonly CACHE_TTL_MS = 5000; // 5 seconds cache TTL
+  private readonly DIFF_COLLECTION_CONCURRENCY = 4;
 
   constructor() {
     this.git = simpleGit();
@@ -41,6 +46,209 @@ export class GitService {
   private clearCache(): void {
     this.cache = {};
   }
+
+  private async getRawStatus(): Promise<RawGitStatus> {
+    return withTimeout(this.git.status(), calculateGitTimeout({}));
+  }
+
+  private readonly toRelativeFilePath = (file: string): string =>
+    file.startsWith(this.repositoryPath)
+      ? file.substring(this.repositoryPath.length + 1)
+      : file;
+
+  private readonly findFileSummary = (
+    diffSummary: { files: DiffSummaryFile[] },
+    relativeFile: string,
+    validatedFile: string
+  ): DiffSummaryFile | undefined =>
+    diffSummary.files.find(
+      fileSummary =>
+        fileSummary.file === relativeFile ||
+        fileSummary.file === validatedFile ||
+        fileSummary.file.endsWith(`/${relativeFile}`)
+    );
+
+  private readonly mapWithConcurrency = async <T, R>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T) => Promise<R>
+  ): Promise<R[]> => {
+    const results = new Array<R>(items.length);
+    let currentIndex = 0;
+    const workerCount = Math.max(1, Math.min(concurrency, items.length));
+
+    const runners = Array.from({ length: workerCount }, async () => {
+      while (currentIndex < items.length) {
+        const itemIndex = currentIndex++;
+        results[itemIndex] = await worker(items[itemIndex]);
+      }
+    });
+
+    await Promise.all(runners);
+
+    return results;
+  };
+
+  private readonly buildFileDiff = async (
+    file: string,
+    status: RawGitStatus,
+    staged: boolean = false
+  ): Promise<GitDiff> => {
+    const pathValidation = validateAndSanitizePath(file, this.repositoryPath);
+    if (!pathValidation.isValid || !pathValidation.sanitizedValue) {
+      throw new SecureError(
+        pathValidation.error ?? "Invalid file path",
+        ErrorType.SECURITY_ERROR,
+        { operation: "getFileDiff", file },
+        false
+      );
+    }
+
+    const validatedFile = pathValidation.sanitizedValue;
+    const relativeFile = this.toRelativeFilePath(file);
+    const isDeleted = status.deleted.includes(relativeFile);
+
+    if (isDeleted && !staged) {
+      return {
+        file: validatedFile,
+        additions: 0,
+        deletions: 1,
+        changes: `File deleted: ${validatedFile}`,
+        isNew: false,
+        isDeleted: true,
+        isRenamed: false,
+        oldPath: undefined,
+      };
+    }
+
+    const isUntracked = status.not_added.includes(relativeFile);
+    if (isUntracked && !staged) {
+      const fileContent = await readFile(validatedFile, "utf-8");
+      const lines = fileContent.split("\n").length;
+
+      return {
+        file: validatedFile,
+        additions: lines,
+        deletions: 0,
+        changes: `+${fileContent}`,
+        isNew: true,
+        isDeleted: false,
+        isRenamed: false,
+        oldPath: undefined,
+      };
+    }
+
+    const diffArgs = staged ? ["--cached", validatedFile] : [validatedFile];
+    const diffTimeout = calculateGitTimeout({ diffSize: 0 });
+
+    try {
+      const [diff, diffSummary] = await Promise.all([
+        withTimeout(this.git.diff(diffArgs), diffTimeout),
+        withTimeout(this.git.diffSummary(diffArgs), diffTimeout),
+      ]);
+
+      const diffValidation = validateDiffSize(diff);
+      const fileSummary = this.findFileSummary(
+        diffSummary,
+        relativeFile,
+        validatedFile
+      );
+
+      if (!diffValidation.isValid) {
+        const isLockFile =
+          relativeFile.includes("yarn.lock") ||
+          relativeFile.includes("package-lock.json") ||
+          relativeFile.includes("pnpm-lock.yaml");
+
+        if (isLockFile) {
+          return {
+            file: validatedFile,
+            additions: fileSummary?.insertions ?? 0,
+            deletions: fileSummary?.deletions ?? 0,
+            changes: `Lock file updated: ${fileSummary?.insertions ?? 0} additions, ${fileSummary?.deletions ?? 0} deletions`,
+            isNew:
+              status.created.includes(relativeFile) ||
+              status.not_added.includes(relativeFile),
+            isDeleted: status.deleted.includes(relativeFile),
+            isRenamed: status.renamed.some(
+              (renamedFile: { to: string }) => renamedFile.to === relativeFile
+            ),
+            oldPath:
+              status.renamed.find(
+                (renamedFile: { to: string; from: string }) =>
+                  renamedFile.to === relativeFile
+              )?.from ?? undefined,
+          };
+        }
+
+        throw new SecureError(
+          diffValidation.error ?? "Validation failed",
+          ErrorType.VALIDATION_ERROR,
+          { operation: "getFileDiff", file: validatedFile },
+          true
+        );
+      }
+
+      return {
+        file: validatedFile,
+        additions: fileSummary?.insertions ?? 0,
+        deletions: fileSummary?.deletions ?? 0,
+        changes: diffValidation.sanitizedValue ?? "",
+        isNew:
+          status.created.includes(relativeFile) ||
+          status.not_added.includes(relativeFile),
+        isDeleted: status.deleted.includes(relativeFile),
+        isRenamed: status.renamed.some(
+          (renamedFile: { to: string }) => renamedFile.to === relativeFile
+        ),
+        oldPath:
+          status.renamed.find(
+            (renamedFile: { to: string; from: string }) =>
+              renamedFile.to === relativeFile
+          )?.from ?? undefined,
+      };
+    } catch {
+      return {
+        file: validatedFile,
+        additions: 0,
+        deletions: 0,
+        changes: "",
+        isNew:
+          status.created.includes(relativeFile) ||
+          status.not_added.includes(relativeFile),
+        isDeleted: status.deleted.includes(relativeFile),
+        isRenamed: status.renamed.some(
+          (renamedFile: { to: string }) => renamedFile.to === relativeFile
+        ),
+        oldPath:
+          status.renamed.find(
+            (renamedFile: { to: string; from: string }) =>
+              renamedFile.to === relativeFile
+          )?.from ?? undefined,
+      };
+    }
+  };
+
+  private readonly collectDiffs = async (
+    files: string[],
+    status: RawGitStatus,
+    staged: boolean = false
+  ): Promise<GitDiff[]> => {
+    const results = await this.mapWithConcurrency(
+      files,
+      this.DIFF_COLLECTION_CONCURRENCY,
+      async file => {
+        try {
+          return await this.buildFileDiff(file, status, staged);
+        } catch (error) {
+          console.warn(`Failed to get diff for ${file}:`, error);
+          return null;
+        }
+      }
+    );
+
+    return results.filter((diff): diff is GitDiff => diff !== null);
+  };
 
   private async initializeRepositoryPath(): Promise<void> {
     const validation = await validateGitRepository(this.repositoryPath);
@@ -78,10 +286,7 @@ export class GitService {
           return this.cache.status.data;
         }
 
-        const status = await withTimeout(
-          this.git.status(),
-          calculateGitTimeout({})
-        );
+        const status = await this.getRawStatus();
         const staged = this.validateFilePaths(status.staged);
         const unstaged = this.validateFilePaths(status.modified);
         const untracked = this.validateFilePaths(status.not_added);
@@ -120,10 +325,7 @@ export class GitService {
   getUnstagedFiles = async (): Promise<string[]> => {
     return withErrorHandling(
       async () => {
-        const status = await withTimeout(
-          this.git.status(),
-          calculateGitTimeout({})
-        );
+        const status = await this.getRawStatus();
 
         const allFiles = [
           ...status.modified,
@@ -141,170 +343,32 @@ export class GitService {
     staged: boolean = false
   ): Promise<GitDiff> => {
     return withErrorHandling(
-      async () => {
-        const pathValidation = validateAndSanitizePath(
-          file,
-          this.repositoryPath
-        );
-        if (!pathValidation.isValid || !pathValidation.sanitizedValue) {
-          throw new SecureError(
-            pathValidation.error ?? "Invalid file path",
-            ErrorType.SECURITY_ERROR,
-            { operation: "getFileDiff", file },
-            false
-          );
-        }
-
-        const validatedFile = pathValidation.sanitizedValue;
-        const status = await withTimeout(
-          this.git.status(),
-          calculateGitTimeout({})
-        );
-        const relativeFile = file.startsWith(this.repositoryPath)
-          ? file.substring(this.repositoryPath.length + 1)
-          : file;
-
-        try {
-          const isDeleted = status.deleted.includes(relativeFile);
-
-          if (isDeleted && !staged) {
-            return {
-              file: validatedFile,
-              additions: 0,
-              deletions: 1,
-              changes: `File deleted: ${validatedFile}`,
-              isNew: false,
-              isDeleted: true,
-              isRenamed: false,
-              oldPath: undefined,
-            };
-          }
-
-          const isUntracked = status.not_added.includes(relativeFile);
-
-          if (isUntracked && !staged) {
-            const { readFile } = await import("fs/promises");
-            const fileContent = await readFile(validatedFile, "utf-8");
-            const lines = fileContent.split("\n").length;
-
-            return {
-              file: validatedFile,
-              additions: lines,
-              deletions: 0,
-              changes: `+${fileContent}`,
-              isNew: true,
-              isDeleted: false,
-              isRenamed: false,
-              oldPath: undefined,
-            };
-          }
-
-          const diffArgs = staged
-            ? ["--cached", validatedFile]
-            : [validatedFile];
-          const diffTimeout = calculateGitTimeout({ diffSize: 0 }); // Will be adjusted after getting diff
-          const diff = await withTimeout(this.git.diff(diffArgs), diffTimeout);
-          const diffSummary = await withTimeout(
-            this.git.diffSummary(diffArgs),
-            diffTimeout
-          );
-
-          const diffValidation = validateDiffSize(diff);
-          if (!diffValidation.isValid) {
-            // For lock files, use summary data instead of full diff content
-            const isLockFile =
-              relativeFile.includes("yarn.lock") ||
-              relativeFile.includes("package-lock.json") ||
-              relativeFile.includes("pnpm-lock.yaml");
-
-            if (isLockFile) {
-              const fileSummary = diffSummary.files.find(
-                (f: {
-                  file: string;
-                  insertions?: number;
-                  deletions?: number;
-                }) => f.file === relativeFile
-              );
-              return {
-                file: validatedFile,
-                additions: fileSummary?.insertions ?? 0,
-                deletions: fileSummary?.deletions ?? 0,
-                changes: `Lock file updated: ${fileSummary?.insertions ?? 0} additions, ${fileSummary?.deletions ?? 0} deletions`,
-                isNew:
-                  status.created.includes(relativeFile) ||
-                  status.not_added.includes(relativeFile),
-                isDeleted: status.deleted.includes(relativeFile),
-                isRenamed: status.renamed.some(
-                  (r: { to: string }) => r.to === relativeFile
-                ),
-                oldPath:
-                  status.renamed.find(
-                    (r: { to: string; from: string }) => r.to === relativeFile
-                  )?.from ?? undefined,
-              };
-            }
-
-            throw new SecureError(
-              diffValidation.error ?? "Validation failed",
-              ErrorType.VALIDATION_ERROR,
-              { operation: "getFileDiff", file: validatedFile },
-              true
-            );
-          }
-
-          const fileSummary = diffSummary.files.find(
-            (f: { file: string; insertions?: number; deletions?: number }) =>
-              f.file === relativeFile
-          );
-
-          return {
-            file: validatedFile,
-            additions: fileSummary?.insertions ?? 0,
-            deletions: fileSummary?.deletions ?? 0,
-            changes: diffValidation.sanitizedValue ?? "",
-            isNew:
-              status.created.includes(relativeFile) ||
-              status.not_added.includes(relativeFile),
-            isDeleted: status.deleted.includes(relativeFile),
-            isRenamed: status.renamed.some(
-              (r: { to: string }) => r.to === relativeFile
-            ),
-            oldPath:
-              status.renamed.find(
-                (r: { to: string; from: string }) => r.to === relativeFile
-              )?.from ?? undefined,
-          };
-        } catch {
-          return {
-            file: validatedFile,
-            additions: 0,
-            deletions: 0,
-            changes: "",
-            isNew:
-              status.created.includes(relativeFile) ||
-              status.not_added.includes(relativeFile),
-            isDeleted: status.deleted.includes(relativeFile),
-            isRenamed: status.renamed.some(
-              (r: { to: string }) => r.to === relativeFile
-            ),
-            oldPath:
-              status.renamed.find(
-                (r: { to: string; from: string }) => r.to === relativeFile
-              )?.from ?? undefined,
-          };
-        }
-      },
+      async () => this.buildFileDiff(file, await this.getRawStatus(), staged),
       { operation: "getFileDiff", file }
+    );
+  };
+
+  getFileDiffs = async (
+    files: string[],
+    staged: boolean = false
+  ): Promise<GitDiff[]> => {
+    return withErrorHandling(
+      async () => {
+        const validatedFiles = this.validateFilePaths(files);
+        if (validatedFiles.length === 0) {
+          return [];
+        }
+
+        return this.collectDiffs(validatedFiles, await this.getRawStatus(), staged);
+      },
+      { operation: "getFileDiffs" }
     );
   };
 
   getStagedDiff = async (): Promise<GitDiff[]> => {
     return withErrorHandling(
       async () => {
-        const status = await withTimeout(
-          this.git.status(),
-          calculateGitTimeout({})
-        );
+        const status = await this.getRawStatus();
 
         if (status.staged.length === 0) {
           throw new SecureError(
@@ -316,59 +380,14 @@ export class GitService {
         }
 
         const validatedFiles = this.validateFilePaths(status.staged);
-        const diffTimeout = calculateGitTimeout({ diffSize: 0 });
-
-        const diffPromises = validatedFiles.map(async (file): Promise<GitDiff | null> => {
-          try {
-            const [diff, diffSummary] = await Promise.all([
-              withTimeout(this.git.diff(["--cached", file]), diffTimeout),
-              withTimeout(this.git.diffSummary(["--cached", file]), diffTimeout),
-            ]);
-
-            const diffValidation = validateDiffSize(diff);
-            if (!diffValidation.isValid) {
-              console.warn(`Diff too large for ${file}, skipping content`);
-              return null;
-            }
-
-            const fileSummary = diffSummary.files.find(
-              (f: { file: string; insertions?: number; deletions?: number }) =>
-                f.file === file
-            );
-
-            return {
-              file,
-              additions: fileSummary?.insertions ?? 0,
-              deletions: fileSummary?.deletions ?? 0,
-              changes: diffValidation.sanitizedValue ?? "",
-              isNew: status.created.includes(file),
-              isDeleted: status.deleted.includes(file),
-              isRenamed: status.renamed.some(
-                (r: { to: string }) => r.to === file
-              ),
-              oldPath:
-                status.renamed.find(
-                  (r: { to: string; from: string }) => r.to === file
-                )?.from ?? undefined,
-            };
-          } catch (error) {
-            console.warn(`Failed to get diff for ${file}:`, error);
-            return null;
-          }
-        });
-
-        const results = await Promise.all(diffPromises);
-        return results.filter((diff): diff is GitDiff => diff !== null);
+        return this.collectDiffs(validatedFiles, status, true);
       },
       { operation: "getStagedDiff" }
     );
   };
 
   getChangesSummary = async (): Promise<string> => {
-    const status = await withTimeout(
-      this.git.status(),
-      calculateGitTimeout({})
-    );
+    const status = await this.getRawStatus();
     const unstagedFiles = [
       ...status.modified,
       ...status.not_added,
@@ -377,18 +396,8 @@ export class GitService {
 
     if (unstagedFiles.length === 0) return "No unstaged changes found.";
 
-    const diffs: GitDiff[] = [];
     const validatedFiles = this.validateFilePaths(unstagedFiles);
-
-    for (const file of validatedFiles) {
-      try {
-        const diff = await this.getFileDiff(file, false);
-        diffs.push(diff);
-      } catch (error) {
-        console.warn(`Failed to get diff: ${error}`);
-        continue;
-      }
-    }
+    const diffs = await this.collectDiffs(validatedFiles, status, false);
 
     if (diffs.length === 0) return "No valid changes found.";
 
@@ -452,6 +461,37 @@ export class GitService {
     );
   };
 
+  stageFiles = async (
+    files: string[],
+    timeoutOptions?: Omit<TimeoutCalculationOptions, "operationType">
+  ): Promise<void> => {
+    return withErrorHandling(
+      async () => {
+        const sanitizedFiles = files
+          .map(file =>
+            validateAndSanitizePath(file, this.repositoryPath).sanitizedValue
+          )
+          .filter((file): file is string => Boolean(file));
+
+        if (sanitizedFiles.length === 0) {
+          throw new SecureError(
+            "No valid files to stage",
+            ErrorType.SECURITY_ERROR,
+            { operation: "stageFiles" },
+            false
+          );
+        }
+
+        await withTimeout(
+          this.git.add(sanitizedFiles),
+          calculateGitTimeout(timeoutOptions || {})
+        );
+        this.clearCache();
+      },
+      { operation: "stageFiles" }
+    );
+  };
+
   commit = async (
     message: string,
     timeoutOptions?: Omit<TimeoutCalculationOptions, "operationType">
@@ -495,7 +535,7 @@ export class GitService {
       return this.cache.repoInfo.data;
     }
 
-    const status = await this.git.status();
+    const status = await this.getRawStatus();
     const remotes = await this.git.getRemotes(true);
 
     let repoName = "unknown";
@@ -533,7 +573,6 @@ export class GitService {
 
   // Wait for Git to naturally release the lock file
   waitForLockRelease = async (maxWaitMs: number = 250): Promise<void> => {
-    const { access } = await import("fs/promises");
     const lockPath = `${this.repositoryPath}/.git/index.lock`;
     const checkInterval = 10; // Check every 10ms for very fast responsiveness
     const maxChecks = Math.floor(maxWaitMs / checkInterval);

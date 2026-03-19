@@ -137,25 +137,20 @@ ${lightColors.white(`"${commitMessage}"`)}`);
     ).start();
 
     try {
+      const analyzedDiffs = await this.gitService.getFileDiffs(files, false);
       const allDiffs: GitDiff[] = [];
       const skippedFiles: string[] = [];
 
-      for (const file of files) {
-        try {
-          const fileDiff = await this.gitService.getFileDiff(file, false);
-          const totalChanges = fileDiff.additions + fileDiff.deletions;
+      for (const file of analyzedDiffs) {
+        const totalChanges = file.additions + file.deletions;
 
-          if (this.shouldSkipFile(fileDiff, totalChanges)) {
-            this.logSkippedFile(this.getFileName(file), fileDiff);
-            skippedFiles.push(file);
-            continue;
-          }
-
-          allDiffs.push(fileDiff);
-        } catch (error) {
-          console.error(`Failed to analyze ${file}: ${error}`);
-          skippedFiles.push(file);
+        if (this.shouldSkipFile(file, totalChanges)) {
+          this.logSkippedFile(this.getFileName(file.file), file);
+          skippedFiles.push(file.file);
+          continue;
         }
+
+        allDiffs.push(file);
       }
 
       if (allDiffs.length === 0) {
@@ -196,62 +191,66 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
             const commitSpinner = lightSpinner(
               `Committing ${groupName}...`
             ).start();
-            const stagedFiles: string[] = [];
+              const stagedFiles: string[] = [];
 
-            // Calculate timeout metrics for this group
-            const groupDiffs = allDiffs.filter(diff => group.files.includes(diff.file));
-            const totalChanges = groupDiffs.reduce(
-              (sum, diff) => sum + diff.additions + diff.deletions,
-              0
-            );
-            const totalDiffSize = groupDiffs.reduce(
-              (sum, diff) => sum + (diff.changes?.length || 0),
-              0
-            );
-            const fileCount = group.files.length;
+              // Calculate timeout metrics for this group
+              const groupDiffs = allDiffs.filter(diff =>
+                group.files.includes(diff.file)
+              );
+              const totalChanges = groupDiffs.reduce(
+                (sum, diff) => sum + diff.additions + diff.deletions,
+                0
+              );
+              const totalDiffSize = groupDiffs.reduce(
+                (sum, diff) => sum + (diff.changes?.length || 0),
+                0
+              );
+              const fileCount = group.files.length;
 
-            const timeoutOptions: Omit<TimeoutCalculationOptions, "operationType"> = {
-              fileCount,
-              totalChanges,
-              diffSize: totalDiffSize,
-            };
+              const timeoutOptions: Omit<
+                TimeoutCalculationOptions,
+                "operationType"
+              > = {
+                fileCount,
+                totalChanges,
+                diffSize: totalDiffSize,
+              };
 
-            // Debug logging for timeout calculation
-            if (process.env.DEBUG_TIMEOUTS || process.env.NODE_ENV === 'development') {
-              console.log(lightColors.gray(
-                `  🕒 Timeout metrics: ${fileCount} files, ${totalChanges} changes, ${Math.round(totalDiffSize/1024)}KB diff`
-              ));
-            }
-
-            for (const file of group.files) {
-              try {
-                await this.gitService.stageFile(file, timeoutOptions);
-                stagedFiles.push(file);
-              } catch (error) {
-                console.warn(
-                  lightColors.yellow(`  ⚠️  Failed to stage ${file}: ${error}`)
+              // Debug logging for timeout calculation
+              if (
+                process.env.DEBUG_TIMEOUTS ||
+                process.env.NODE_ENV === "development"
+              ) {
+                console.log(
+                  lightColors.gray(
+                    `  🕒 Timeout metrics: ${fileCount} files, ${totalChanges} changes, ${Math.round(totalDiffSize / 1024)}KB diff`
+                  )
                 );
               }
+
+              try {
+                await this.gitService.stageFiles(group.files, timeoutOptions);
+                stagedFiles.push(...group.files);
+              } catch (error) {
+                commitSpinner.fail(
+                  lightColors.yellow(
+                    `Failed to stage files for group: ${error}`
+                  )
+                );
+                continue;
+              }
+
+              await this.gitService.waitForLockRelease();
+              await this.gitService.commit(group.message, timeoutOptions);
+
+              const actualGroupName =
+                stagedFiles.length > 1
+                  ? `${stagedFiles.length} files`
+                  : this.getFileName(stagedFiles[0]);
+
+              commitSpinner.succeed(`✅ ${actualGroupName}: ${group.message}`);
+              processedFilesInGroup = stagedFiles.length;
             }
-
-            if (stagedFiles.length === 0) {
-              commitSpinner.fail(
-                `No files could be staged for group: ${group.message}`
-              );
-              continue;
-            }
-
-            await this.gitService.waitForLockRelease();
-            await this.gitService.commit(group.message, timeoutOptions);
-
-            const actualGroupName =
-              stagedFiles.length > 1
-                ? `${stagedFiles.length} files`
-                : this.getFileName(stagedFiles[0]);
-
-            commitSpinner.succeed(`✅ ${actualGroupName}: ${group.message}`);
-            processedFilesInGroup = stagedFiles.length;
-          }
 
           processedCount += processedFilesInGroup;
         } catch (error) {

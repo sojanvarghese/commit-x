@@ -47,14 +47,21 @@ export const lazyModules = {
   colors: createLazyModule("colors", () => import("./colors.js")),
 };
 
+const COMMITX_PRELOAD_COMMANDS = new Set(["commit", "status", "diff"]);
+
 /**
  * Preload critical modules in background after startup
  */
-export const preloadCriticalModules = (): void => {
-  // Don't await - just start loading in background
+export const preloadCriticalModules = (
+  requestedCommand?: string
+): void => {
   setTimeout(() => {
-    void lazyModules.commitX();
-    void lazyModules.security();
-    void lazyModules.colors();
-  }, 100); // Small delay to not interfere with startup
+    if (!requestedCommand || COMMITX_PRELOAD_COMMANDS.has(requestedCommand)) {
+      void lazyModules.commitX();
+    }
+
+    if (requestedCommand === "debug") {
+      void lazyModules.security();
+    }
+  }, 100);
 };
