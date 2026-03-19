@@ -372,11 +372,19 @@ export class AIService {
           if (validation.correctedMessage) {
             finalMessage = validation.correctedMessage;
           } else if (!validation.isValid) {
-            console.log(lightColors.red(`❌ Rejecting invalid commit message format: "${trimmedMessage}"`));
+            console.log(
+              lightColors.red(
+                `❌ Rejecting invalid commit message format: "${trimmedMessage}"`
+              )
+            );
             // Generate fallback message for the first file in the group
             const firstDiff = diffs.find(d => d.file === validFiles[0]);
-            finalMessage = firstDiff ? this.generateFallbackMessage(firstDiff) : "Updated files";
-            console.log(lightColors.blue(`  ✓ Using fallback message: "${finalMessage}"`));
+            finalMessage = firstDiff
+              ? this.generateFallbackMessage(firstDiff)
+              : "Updated files";
+            console.log(
+              lightColors.blue(`  ✓ Using fallback message: "${finalMessage}"`)
+            );
           }
 
           groups.push({
@@ -413,31 +421,45 @@ export class AIService {
     }
   };
 
-  private readonly validateCommitMessageFormat = (message: string): { isValid: boolean; correctedMessage?: string } => {
-    if (!message || typeof message !== 'string') {
+  private readonly validateCommitMessageFormat = (
+    message: string
+  ): { isValid: boolean; correctedMessage?: string } => {
+    if (!message || typeof message !== "string") {
       return { isValid: false };
     }
 
     const trimmedMessage = message.trim();
-    const hasSimplePrefix = COMMIT_MESSAGE_PATTERNS.AVOID_PREFIXES.some(prefix =>
-      trimmedMessage.toLowerCase().startsWith(prefix.toLowerCase())
+    const hasSimplePrefix = COMMIT_MESSAGE_PATTERNS.AVOID_PREFIXES.some(
+      prefix => trimmedMessage.toLowerCase().startsWith(prefix.toLowerCase())
     );
 
     if (hasSimplePrefix) {
-      console.log(lightColors.yellow(`⚠️  Detected conventional commit prefix in: "${trimmedMessage}"`));
+      console.log(
+        lightColors.yellow(
+          `⚠️  Detected conventional commit prefix in: "${trimmedMessage}"`
+        )
+      );
       return { isValid: false };
     }
 
-    const hasConventionalPattern = COMMIT_MESSAGE_PATTERNS.CONVENTIONAL_COMMIT_PATTERNS.some(pattern =>
-      pattern.test(trimmedMessage)
-    );
+    const hasConventionalPattern =
+      COMMIT_MESSAGE_PATTERNS.CONVENTIONAL_COMMIT_PATTERNS.some(pattern =>
+        pattern.test(trimmedMessage)
+      );
 
     if (hasConventionalPattern) {
-      console.log(lightColors.yellow(`⚠️  Detected conventional commit format in: "${trimmedMessage}"`));
-      const corrected = trimmedMessage.replace(/^[a-z]+(\([^)]*\))?:\s*/i, '');
+      console.log(
+        lightColors.yellow(
+          `⚠️  Detected conventional commit format in: "${trimmedMessage}"`
+        )
+      );
+      const corrected = trimmedMessage.replace(/^[a-z]+(\([^)]*\))?:\s*/i, "");
       if (corrected && corrected.length > 10) {
-        const correctedMessage = corrected.charAt(0).toUpperCase() + corrected.slice(1);
-        console.log(lightColors.blue(`  ✓ Corrected to: "${correctedMessage}"`));
+        const correctedMessage =
+          corrected.charAt(0).toUpperCase() + corrected.slice(1);
+        console.log(
+          lightColors.blue(`  ✓ Corrected to: "${correctedMessage}"`)
+        );
         return { isValid: true, correctedMessage };
       }
       return { isValid: false };
