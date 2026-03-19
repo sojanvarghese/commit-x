@@ -46,9 +46,9 @@ const isColorDisabled = (): boolean => {
   // - CI environment without FORCE_COLOR
   return Boolean(
     process.env.NO_COLOR ||
-      process.env.FORCE_COLOR === "0" ||
-      (!process.stdout.isTTY && !process.env.FORCE_COLOR) ||
-      (process.env.CI && !process.env.FORCE_COLOR)
+    process.env.FORCE_COLOR === "0" ||
+    (!process.stdout.isTTY && !process.env.FORCE_COLOR) ||
+    (process.env.CI && !process.env.FORCE_COLOR)
   );
 };
 
@@ -81,11 +81,8 @@ export const lightColors = {
   bgBlue: createColorFunction(colors.bgBlue),
 
   // Utility functions
-  strip: (text: string): string => {
-    // Remove all ANSI escape codes
-    // eslint-disable-next-line no-control-regex
-    return text.replace(/\x1b\[[0-9;]*m/g, "");
-  },
+  // eslint-disable-next-line no-control-regex
+  strip: (text: string): string => text.replace(/\x1b\[[0-9;]*m/g, ""),
 };
 
 // Default export for drop-in replacement

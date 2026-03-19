@@ -10,12 +10,19 @@ import {
 } from "../utils/security.js";
 import { ErrorType } from "../types/error-handler.js";
 import { withErrorHandling, SecureError } from "../utils/error-handler.js";
-import { calculateGitTimeout, type TimeoutCalculationOptions } from "../utils/timeout.js";
+import {
+  calculateGitTimeout,
+  type TimeoutCalculationOptions,
+} from "../utils/timeout.js";
 import { ERROR_MESSAGES } from "../constants/messages.js";
 import { UI_CONSTANTS } from "../constants/ui.js";
 
 type RawGitStatus = Awaited<ReturnType<SimpleGit["status"]>>;
-type DiffSummaryFile = { file: string; insertions?: number; deletions?: number };
+type DiffSummaryFile = {
+  file: string;
+  insertions?: number;
+  deletions?: number;
+};
 
 // Simple cache for Git operations
 interface GitCache {
@@ -359,7 +366,11 @@ export class GitService {
           return [];
         }
 
-        return this.collectDiffs(validatedFiles, await this.getRawStatus(), staged);
+        return this.collectDiffs(
+          validatedFiles,
+          await this.getRawStatus(),
+          staged
+        );
       },
       { operation: "getFileDiffs" }
     );
@@ -468,8 +479,9 @@ export class GitService {
     return withErrorHandling(
       async () => {
         const sanitizedFiles = files
-          .map(file =>
-            validateAndSanitizePath(file, this.repositoryPath).sanitizedValue
+          .map(
+            file =>
+              validateAndSanitizePath(file, this.repositoryPath).sanitizedValue
           )
           .filter((file): file is string => Boolean(file));
 

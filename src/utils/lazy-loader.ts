@@ -52,9 +52,7 @@ const COMMITX_PRELOAD_COMMANDS = new Set(["commit", "status", "diff"]);
 /**
  * Preload critical modules in background after startup
  */
-export const preloadCriticalModules = (
-  requestedCommand?: string
-): void => {
+export const preloadCriticalModules = (requestedCommand?: string): void => {
   setTimeout(() => {
     if (!requestedCommand || COMMITX_PRELOAD_COMMANDS.has(requestedCommand)) {
       void lazyModules.commitX();

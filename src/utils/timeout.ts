@@ -55,8 +55,10 @@ export const calculateDynamicTimeout = (
   timeout = Math.max(timeout, baseTimeouts[operationType]);
 
   // Debug logging for timeout calculation
-  if (process.env.DEBUG_TIMEOUTS || process.env.NODE_ENV === 'development') {
-    console.log(`🕒 Calculated ${operationType} timeout: ${timeout}ms (base: ${baseTimeouts[operationType]}ms, files: ${fileCount}, changes: ${totalChanges}, diffSize: ${Math.round(diffSize/1024)}KB)`);
+  if (process.env.DEBUG_TIMEOUTS || process.env.NODE_ENV === "development") {
+    console.log(
+      `🕒 Calculated ${operationType} timeout: ${timeout}ms (base: ${baseTimeouts[operationType]}ms, files: ${fileCount}, changes: ${totalChanges}, diffSize: ${Math.round(diffSize / 1024)}KB)`
+    );
   }
 
   return timeout;

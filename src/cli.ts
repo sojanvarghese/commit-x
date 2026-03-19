@@ -98,9 +98,8 @@ ${lightColors.blue("  cx commit --help                 # Show all options")}`);
 
           // Validate commit message if provided (lazy load validation)
           if (options.message) {
-            const { CommitMessageSchema } = await import(
-              "./schemas/validation.js"
-            );
+            const { CommitMessageSchema } =
+              await import("./schemas/validation.js");
             const { ErrorType } = await import("./types/error-handler.js");
             const { SecureError } = await import("./utils/error-handler.js");
 
@@ -119,9 +118,8 @@ ${lightColors.blue("  cx commit --help                 # Show all options")}`);
           // Use lazy loading for core functionality
           const operation = options.all ? "commit-traditional" : "commit-ai";
 
-          const { withPerformanceTracking } = await import(
-            "./utils/performance.js"
-          );
+          const { withPerformanceTracking } =
+            await import("./utils/performance.js");
           await withPerformanceTracking(operation, async () => {
             const { CommitX } = await lazyModules.commitX();
             const commitX = new CommitX();
@@ -184,9 +182,8 @@ configCmd
   .command("set <key> <value>")
   .description("Set configuration value")
   .action(async (key: string, value: string): Promise<void> => {
-    const { withErrorHandling, SecureError } = await import(
-      "./utils/error-handler.js"
-    );
+    const { withErrorHandling, SecureError } =
+      await import("./utils/error-handler.js");
     await withErrorHandling(
       async (): Promise<void> => {
         // Lazy load validation and config
@@ -220,9 +217,8 @@ configCmd
   .command("get [key]")
   .description("Get configuration value(s)")
   .action(async (key?: string): Promise<void> => {
-    const { withErrorHandling, SecureError } = await import(
-      "./utils/error-handler.js"
-    );
+    const { withErrorHandling, SecureError } =
+      await import("./utils/error-handler.js");
     await withErrorHandling(
       async (): Promise<void> => {
         // Lazy load config and validation
@@ -513,9 +509,8 @@ if (process.argv.length === 2) {
   void (async (): Promise<void> => {
     try {
       // Use lazy loading for performance tracking and core functionality
-      const { withPerformanceTracking } = await import(
-        "./utils/performance.js"
-      );
+      const { withPerformanceTracking } =
+        await import("./utils/performance.js");
       await withPerformanceTracking("default-commit", async () => {
         const { CommitX } = await lazyModules.commitX();
         const commitX = new CommitX();

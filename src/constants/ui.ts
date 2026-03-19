@@ -39,18 +39,18 @@ export const COMMIT_MESSAGE_PATTERNS = {
   ],
   // Regex patterns to catch scoped conventional commit formats like feat(scope):, refactor(component):
   CONVENTIONAL_COMMIT_PATTERNS: [
-    /^feat\([^)]*\):/i,        // feat(scope):
-    /^fix\([^)]*\):/i,         // fix(scope):
-    /^chore\([^)]*\):/i,       // chore(scope):
-    /^refactor\([^)]*\):/i,    // refactor(scope):
-    /^test\([^)]*\):/i,        // test(scope):
-    /^docs\([^)]*\):/i,        // docs(scope):
-    /^style\([^)]*\):/i,       // style(scope):
-    /^perf\([^)]*\):/i,        // perf(scope):
-    /^ci\([^)]*\):/i,          // ci(scope):
-    /^build\([^)]*\):/i,       // build(scope):
-    /^revert\([^)]*\):/i,      // revert(scope):
-    /^[a-z]+\([^)]*\):/i,      // any lowercase word followed by (scope):
+    /^feat\([^)]*\):/i, // feat(scope):
+    /^fix\([^)]*\):/i, // fix(scope):
+    /^chore\([^)]*\):/i, // chore(scope):
+    /^refactor\([^)]*\):/i, // refactor(scope):
+    /^test\([^)]*\):/i, // test(scope):
+    /^docs\([^)]*\):/i, // docs(scope):
+    /^style\([^)]*\):/i, // style(scope):
+    /^perf\([^)]*\):/i, // perf(scope):
+    /^ci\([^)]*\):/i, // ci(scope):
+    /^build\([^)]*\):/i, // build(scope):
+    /^revert\([^)]*\):/i, // revert(scope):
+    /^[a-z]+\([^)]*\):/i, // any lowercase word followed by (scope):
   ],
   JSON_PATTERN: /\{[\s\S]*\}/,
 } as const;
