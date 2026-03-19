@@ -3,7 +3,6 @@ import { match } from "ts-pattern";
 import { sanitizeError } from "./security.js";
 import {
   ERROR_LOG_LIMIT,
-  RECENT_ERROR_THRESHOLD_MS,
   DEFAULT_RETRY_ATTEMPTS,
   DEFAULT_RETRY_DELAY_MS,
   ERROR_PATTERNS,
@@ -77,7 +76,7 @@ export class SecureError extends Error {
 
 export class ErrorHandler {
   private static instance: ErrorHandler;
-  private errorLog: Array<{ error: SecureError; timestamp: Date }> = [];
+  private readonly errorLog: Array<{ error: SecureError; timestamp: Date }> = [];
 
   private constructor() {
     // Private constructor for singleton pattern
