@@ -1,9 +1,9 @@
 [![License](https://badgen.net/badge/license/MIT/blue)](https://opensource.org/licenses/MIT)
 [![NPM Version](https://badgen.net/npm/v/@sojanvarghese/commit-x)](https://www.npmjs.com/package/@sojanvarghese/commit-x)
 [![NPM Downloads](https://badgen.net/npm/dw/@sojanvarghese/commit-x)](https://www.npmjs.com/package/@sojanvarghese/commit-x)
-[![Node.js](https://badgen.net/badge/node/22.0.0+/green)](https://nodejs.org/)
+[![Node.js](https://badgen.net/badge/node/24.0.0+/green)](https://nodejs.org/)
 [![TypeScript](https://badgen.net/badge/TypeScript/5.9.3/blue)](https://www.typescriptlang.org/)
-[![Yarn](https://badgen.net/badge/yarn/4.12.0+/blue)](https://yarnpkg.com/)
+[![Yarn](https://badgen.net/badge/yarn/4.13.0+/blue)](https://yarnpkg.com/)
 [![AI](https://badgen.net/badge/AI/Gemini/4285F4)](https://ai.google.dev/)
 [![CLI](https://badgen.net/badge/CLI/Tool/green)](https://en.wikipedia.org/wiki/Command-line_interface)
 
@@ -21,7 +21,7 @@
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 22.0.0+
+- Node.js 24.0.0+
 - [Gemini AI API key](https://aistudio.google.com/app/apikey)
 
 ### Installation
