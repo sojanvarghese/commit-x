@@ -41,79 +41,56 @@ export const CommitSuggestionSchema = z.object({
 export const FilePathSchema = z
   .string()
   .min(1, "File path is required")
-  .refine(path => {
-    // Check for path traversal attempts
-    return !path.includes("..") && !path.includes("~") && !path.startsWith("/");
-  }, "Path traversal detected: file path is outside allowed directory")
-  .refine(path => {
-    // Check for suspicious patterns
-    const suspiciousPatterns = [
-      /\.\./,
-      /~/,
-      /\/etc\//,
-      /\/proc\//,
-      /\/sys\//,
-      /\/dev\//,
-      /\.env/,
-      /\.ssh/,
-      /\.aws/,
-      /\.config/,
-      /\.git\//,
-    ];
-    return !suspiciousPatterns.some(pattern => pattern.test(path));
-  }, "Suspicious path pattern detected");
+  .refine(
+    (
+      path // Check for path traversal attempts
+    ) => !path.includes("..") && !path.includes("~") && !path.startsWith("/"),
+    "Path traversal detected: file path is outside allowed directory"
+  )
+  .refine(
+    path =>
+      [
+        /\.\./,
+        /~/,
+        /\/etc\//,
+        /\/proc\//,
+        /\/sys\//,
+        /\/dev\//,
+        /\.env/,
+        /\.ssh/,
+        /\.aws/,
+        /\.config/,
+        /\.git\//,
+      ].some(pattern => pattern.test(path)),
+    "Suspicious path pattern detected"
+  );
 
 // Commit message validation schema
 export const CommitMessageSchema = z
   .string()
   .min(1, "Commit message must be a non-empty string")
   .max(200, "Commit message must be 200 characters or less")
-  .refine(message => {
-    const trimmed = message.trim();
-    return trimmed.length > 0;
-  }, "Commit message cannot be empty")
-  .refine(message => {
-    // Check for suspicious patterns
-    const suspiciousPatterns = [
-      /<script/i,
-      /javascript:/i,
-      /data:/i,
-      /vbscript:/i,
-      /onload=/i,
-      /onerror=/i,
-      /onclick=/i,
-      /<iframe/i,
-    ];
-    return !suspiciousPatterns.some(pattern => pattern.test(message));
-  }, "Commit message contains potentially malicious content")
+  .refine(msg => msg.trim().length > 0, "Commit message cannot be empty")
+  .refine(
+    message =>
+      [
+        /<script/i,
+        /javascript:/i,
+        /data:/i,
+        /vbscript:/i,
+        /onload=/i,
+        /onerror=/i,
+        /onclick=/i,
+        /<iframe/i,
+      ].some(pattern => pattern.test(message)),
+    "Commit message contains potentially malicious content"
+  )
   .transform(val => val.trim());
 
 // Diff content validation schema
 export const DiffContentSchema = z
   .string()
   .max(100000, "Diff content size exceeds limit of 100,000 characters");
-
-// File size validation schema
-export const FileSizeSchema = z
-  .number()
-  .int()
-  .min(0)
-  .max(10 * 1024 * 1024, "File size exceeds limit of 10MB"); // 10MB limit
-
-// Git repository validation schema
-export const GitRepositorySchema = z
-  .string()
-  .min(1, "Repository path is required")
-  .refine(async path => {
-    try {
-      const { access } = await import("fs/promises");
-      const { join } = await import("path");
-      await access(join(path, ".git"), 0); // Check if .git directory exists
-      return true;
-    } catch {
-      return false;
-    }
-  }, "Not a valid git repository");
 
 // Validation result type
 export type ValidationResult<T = unknown> = {

@@ -110,7 +110,8 @@ export class PersistentAICache implements AICache {
       const memoryEntry = this.memoryCache.get(key);
       if (memoryEntry && this.isValidEntry(memoryEntry)) {
         this.stats.hits++;
-        return memoryEntry.suggestions;
+        const suggestions = memoryEntry.suggestions;
+        return Array.isArray(suggestions) ? suggestions : null;
       }
 
       // Check disk cache
@@ -224,10 +225,7 @@ export class RequestBatcher {
     Promise<CommitSuggestion[]>
   >();
 
-  async batch<T>(
-    key: string,
-    requestFn: () => Promise<T>
-  ): Promise<T> {
+  async batch<T>(key: string, requestFn: () => Promise<T>): Promise<T> {
     // Check if we already have a pending request for this key
     const existing = this.pendingRequests.get(key);
     if (existing) {
