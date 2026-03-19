@@ -37,7 +37,8 @@ export class ConfigManager {
     try {
       // Create config directory if it doesn't exist
       if (!fs.existsSync(CONFIG_DIR)) {
-        fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: CONFIG_DIR_MODE }); // Secure permissions
+        fs.mkdirSync(CONFIG_DIR, { recursive: true }); // Create directory recursively
+        fs.chmodSync(CONFIG_DIR, CONFIG_DIR_MODE); // Secure permissions
       }
 
       if (fs.existsSync(CONFIG_FILE)) {
@@ -82,7 +83,8 @@ export class ConfigManager {
         this.config = { ...this.config, ...result.data };
 
         if (!fs.existsSync(CONFIG_DIR)) {
-          fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: CONFIG_DIR_MODE });
+          fs.mkdirSync(CONFIG_DIR, { recursive: true });
+          fs.chmodSync(CONFIG_DIR, CONFIG_DIR_MODE);
         }
 
         // Create a safe config object without sensitive data
@@ -90,9 +92,8 @@ export class ConfigManager {
         // Never save API key to file - always use environment variable
         delete safeConfig.apiKey;
 
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(safeConfig, null, 2), {
-          mode: CONFIG_FILE_MODE,
-        });
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(safeConfig, null, 2));
+        fs.chmodSync(CONFIG_FILE, CONFIG_FILE_MODE);
       },
       { operation: "saveConfig" }
     );
@@ -113,8 +114,7 @@ export class ConfigManager {
     await withErrorHandling(
       async (): Promise<void> => {
         // Validate the specific key-value pair using Zod
-        const partialSchema = CommitConfigSchema.pick({ [key]: true });
-        const result = partialSchema.safeParse({ [key]: value });
+        const result = CommitConfigSchema.shape[key].safeParse(value);
 
         if (!result.success) {
           throw new SecureError(
@@ -125,7 +125,7 @@ export class ConfigManager {
           );
         }
 
-        this.config[key] = result.data[key];
+        this.config[key] = result.data;
         void this.saveConfig({});
       },
       { operation: "setConfig", key }
