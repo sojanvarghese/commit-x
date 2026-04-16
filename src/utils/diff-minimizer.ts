@@ -44,6 +44,20 @@ export const keepSignificantDiffLines = (content: string): string =>
     .join("\n")
     .trim();
 
+// Large diffs: additions describe the post-change state and carry intent;
+// deletions are context we can usually drop to make room for more files.
+// Keeps hunk headers + additions, strips deletion lines entirely.
+export const prioritizeAdditions = (content: string): string =>
+  content
+    .split("\n")
+    .filter(line => {
+      if (line.startsWith("@@")) return true;
+      if (line.startsWith("+++") || line.startsWith("---")) return false;
+      return line.startsWith("+");
+    })
+    .join("\n")
+    .trim();
+
 export const stripBoilerplate = (content: string): string => {
   const lines = content.split("\n");
   const filtered: string[] = [];
@@ -155,22 +169,35 @@ export const compressDiffForPrompt = (
     return { content: significantLines, compressed: true };
   }
 
+  // Tier 1.5 (aggressive only): prioritize + lines — additions describe
+  // the new state of the file, which is what the AI needs to summarize.
+  // Deletion lines are redundant context once the file is large.
+  const additionsOnly = aggressive
+    ? prioritizeAdditions(significantLines || normalized)
+    : "";
+  if (aggressive && additionsOnly && additionsOnly.length <= budget) {
+    return { content: additionsOnly, compressed: true };
+  }
+
   // Tier 2: strip boilerplate (always for aggressive mode, or when still too big)
-  const stripped = stripBoilerplate(significantLines || normalized);
+  const stripped = stripBoilerplate(
+    additionsOnly || significantLines || normalized
+  );
   if (stripped && stripped.length <= budget) {
     return { content: stripped, compressed: true };
   }
 
   // Tier 3: collapse repetitive patterns
   const collapsed = collapseRepetitiveLines(
-    stripped || significantLines || normalized
+    stripped || additionsOnly || significantLines || normalized
   );
   if (collapsed && collapsed.length <= budget) {
     return { content: collapsed, compressed: true };
   }
 
   // Tier 4: hard truncate the best we have
-  const best = collapsed || stripped || significantLines || normalized;
+  const best =
+    collapsed || stripped || additionsOnly || significantLines || normalized;
   if (best) {
     return {
       content: truncatePreservingEdges(best, budget),

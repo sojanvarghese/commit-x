@@ -83,3 +83,64 @@ test("truncatePreservingEdges keeps head and tail with separator", async () => {
   assert.ok(out.includes("END"));
   assert.ok(out.includes("[truncated]"));
 });
+
+test("prioritizeAdditions keeps + lines and @@ headers, drops - lines", async () => {
+  const { prioritizeAdditions } = await loadMinimizer();
+  const input = [
+    "--- a/src/a.ts",
+    "+++ b/src/a.ts",
+    "@@ -1,5 +1,7 @@",
+    " unchanged context",
+    "-const old = 1;",
+    "+const fresh = 2;",
+    "+const more = 3;",
+    "-// removed comment",
+    " another context",
+  ].join("\n");
+
+  const out = prioritizeAdditions(input);
+  assert.ok(out.includes("@@ -1,5 +1,7 @@"), "hunk headers must survive");
+  assert.ok(out.includes("+const fresh = 2;"), "additions must survive");
+  assert.ok(out.includes("+const more = 3;"));
+  assert.equal(out.includes("const old = 1"), false, "deletions must be dropped");
+  assert.equal(
+    out.includes("removed comment"),
+    false,
+    "deletion-line comments must be dropped"
+  );
+  assert.equal(
+    out.includes("unchanged context"),
+    false,
+    "context lines (no +/-) must be dropped"
+  );
+  assert.equal(
+    out.includes("--- a/src/a.ts"),
+    false,
+    "file-header markers must be dropped"
+  );
+});
+
+test("compressDiffForPrompt prioritizes additions once aggressive threshold hit", async () => {
+  const { compressDiffForPrompt } = await loadMinimizer();
+  const additionLines = Array.from({ length: 200 }, (_, i) => `+const addedVal${i} = ${i};`);
+  const deletionLines = Array.from({ length: 200 }, (_, i) => `-const removedVal${i} = ${i};`);
+  const diff = {
+    file: "src/newfile.ts",
+    additions: 200,
+    deletions: 200,
+    changes: [...additionLines, ...deletionLines].join("\n"),
+    isNew: true,
+  };
+
+  const result = compressDiffForPrompt(diff, 20_000);
+  assert.equal(result.compressed, true);
+  assert.ok(
+    result.content.includes("addedVal0"),
+    "compressed output must retain addition content for new files"
+  );
+  assert.equal(
+    result.content.includes("removedVal0"),
+    false,
+    "compressed output should drop deletion noise to make room for additions"
+  );
+});
