@@ -56,11 +56,12 @@ export const buildAggregatedPrompt = (
     "Task: Group the file changes below into logical git commits.",
     'Output: ONLY a JSON object matching this schema, no prose, no markdown fence: {"groups":[{"files":["<file>"],"message":"<subject>","confidence":<0..1>}]}',
     "Rules:",
-    "- Each file appears in exactly one group.",
+    "- EVERY file in the 'Files:' list MUST appear in exactly one group. Do not omit new files, deleted files, or files with large diffs.",
     "- 1 to 7 files per group. Split unrelated changes into separate groups.",
-    "- message: 3-20 words, capitalized past-tense verb first (e.g. Added, Fixed, Updated, Refactored), no trailing period.",
+    "- message: 3-20 words describing what the diff actually does based on the + lines shown. Capitalized past-tense verb first (e.g. Added, Fixed, Updated, Refactored). No trailing period. No speculation — describe the concrete change.",
     "- FORBIDDEN prefixes: feat:, fix:, chore:, docs:, refactor:, style:, test:, perf:, build:, ci:, revert:. No type(scope): syntax.",
     "- confidence: 0.5 (unsure) to 0.95 (clear intent).",
+    "- Diff lines starting with + are the new state of the file. For large diffs you will only see + lines and hunk headers (deletions stripped to save tokens). Base your message on what those additions accomplish.",
     "Files:",
     "---",
     ...fileEntries,
@@ -115,14 +116,16 @@ const createPathResolver = (
   };
 };
 
-const generateFallbackMessage = (diff: GitDiff): string => {
+// Used ONLY as the last-resort label after (a) the main AI call omits a file
+// and (b) a focused retry also fails to cover it. Must stay factual — no
+// speculation about what the change does, because by definition we have no AI
+// analysis of the diff at this point.
+export const generateFactualFallback = (diff: GitDiff): string => {
   const fileName = diff.file.split("/").pop() ?? diff.file;
-
-  if (diff.isNew) return `Created new ${fileName} file with initial implementation`;
-  if (diff.isDeleted) return `Removed ${fileName} file as it is no longer needed`;
-  if (diff.additions > diff.deletions * 2) return `Added new functionality to ${fileName} file`;
-  if (diff.deletions > diff.additions * 2) return `Removed unused code from ${fileName} file`;
-  return `Updated ${fileName} file with code improvements`;
+  if (diff.isNew) return `Added ${fileName}`;
+  if (diff.isDeleted) return `Removed ${fileName}`;
+  if (diff.isRenamed) return `Renamed ${fileName}`;
+  return `Updated ${fileName}`;
 };
 
 interface FormatValidation {
@@ -186,7 +189,7 @@ const resolveFinalMessage = (
       lightColors.red(`❌ Rejecting invalid commit message format: "${trimmed}"`)
     );
     const firstDiff = diffs.find(d => d.file === firstValidFile);
-    const fallback = firstDiff ? generateFallbackMessage(firstDiff) : "Updated files";
+    const fallback = firstDiff ? generateFactualFallback(firstDiff) : "Updated files";
     console.log(lightColors.blue(`  ✓ Using fallback message: "${fallback}"`));
     return fallback;
   }
@@ -201,11 +204,15 @@ interface RawGroup {
   confidence?: unknown;
 }
 
+export interface ParseResult extends AggregatedCommitResponse {
+  unusedDiffs: GitDiff[];
+}
+
 export const parseAggregatedResponse = (
   response: string,
   diffs: GitDiff[],
   sanitizedDiffs: SanitizedDiff[]
-): AggregatedCommitResponse => {
+): ParseResult => {
   const jsonMatch = response.match(COMMIT_MESSAGE_PATTERNS.JSON_PATTERN);
   if (!jsonMatch) {
     throw new Error("No valid JSON found in AI response");
@@ -266,21 +273,9 @@ export const parseAggregatedResponse = (
     });
   }
 
-  const unusedFiles = diffs.filter(diff => !usedFiles.has(diff.file));
-  if (unusedFiles.length > 0) {
-    console.warn(
-      `${unusedFiles.length} files not included in AI grouping, adding as individual commits`
-    );
-    for (const diff of unusedFiles) {
-      groups.push({
-        files: [diff.file],
-        message: generateFallbackMessage(diff),
-        confidence: 0.6,
-      });
-    }
-  }
+  // Surface files AI omitted so the orchestrator can retry with a focused
+  // prompt instead of emitting templated "Created new X file" messages.
+  const unusedDiffs = diffs.filter(diff => !usedFiles.has(diff.file));
 
-  return { groups };
+  return { groups, unusedDiffs };
 };
-
-export { generateFallbackMessage };
