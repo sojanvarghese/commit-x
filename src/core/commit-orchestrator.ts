@@ -142,7 +142,8 @@ export const commitFilesBatch = async (
   options: CommitOptions
 ): Promise<number> => {
   const spinner = lightSpinner(
-    "Analyzing files for intelligent grouping..."
+    "Analyzing files for intelligent grouping... \n"
+
   ).start();
 
   try {

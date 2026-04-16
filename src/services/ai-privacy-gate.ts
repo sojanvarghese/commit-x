@@ -64,18 +64,15 @@ export const enforcePrivacyGate = (
 
 export const logPrivacyGateOutcome = (result: PrivacyGateResult): void => {
   for (const skipped of result.skippedFiles) {
-    console.warn("--------------------------------");
-    console.warn(`⚠️  Skipping ${skipped.file}: ${skipped.reason}`);
+    console.warn(`⚠️  Skipping ${skipped.file}: ${skipped.reason} \n`);
   }
 
   if (result.report.sanitizedFiles > 0) {
-    console.warn("--------------------------------");
     console.warn(
-      `⚠️  Privacy Notice: ${result.report.sanitizedFiles} files were sanitized before sending to AI`
+      `⚠️  Privacy Notice: ${result.report.sanitizedFiles} files were sanitized before sending to AI \n`
     );
     if (result.report.warnings.length > 0) {
-      console.warn(`⚠️  Warnings: ${result.report.warnings.join(" & ")}`);
+      console.warn(`⚠️  Warnings: ${result.report.warnings.join(" & ")} \n`);
     }
   }
-  console.warn("--------------------------------");
 };
