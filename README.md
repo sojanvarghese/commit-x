@@ -79,9 +79,6 @@ cx commit --dry-run
 # View current configuration
 cx config
 
-# Set configuration values
-cx config set model gemini-3.1-flash-lite-preview
-
 # Reset to defaults
 cx config reset
 ```
@@ -91,7 +88,8 @@ cx config reset
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `apiKey` | string | - | Gemini AI API key (use environment variable) |
-| `model` | string | `gemini-3.1-flash-lite-preview` | AI model to use |
+
+The CLI picks the Gemini model automatically (`gemini-3.1-flash-lite-preview` first, then `gemini-2.5-flash-lite`, then `gemini-2.5-flash` if a call fails).
 
 ## Acknowledgments
 
