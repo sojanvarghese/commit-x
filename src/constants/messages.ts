@@ -67,10 +67,3 @@ export const WARNING_MESSAGES = {
   NOT_GIT_REPOSITORY: "Not a git repository",
   SETUP_FAILED: "Setup failed:",
 } as const;
-
-export const HELP_MESSAGES = {
-  USAGE_COMMANDS: 'Use "commit-x --help" for available commands',
-  CONFIG_MODIFY: 'Use "commit-x config" to modify settings later.',
-  COMMIT_X_USAGE:
-    'You can now use "commit-x" or "cx" to start making AI-powered commits.',
-} as const;

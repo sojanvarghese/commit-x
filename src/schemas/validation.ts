@@ -1,6 +1,4 @@
 import { z } from "zod";
-import { ALLOWED_MODELS } from "../constants/security.js";
-import { AI_DEFAULT_MODEL } from "../constants/ai.js";
 
 // Base validation schemas
 export const ApiKeySchema = z
@@ -10,10 +8,9 @@ export const ApiKeySchema = z
   .regex(/^[A-Za-z0-9_-]+$/, "API key contains invalid characters")
   .transform(val => val.trim());
 
-// Configuration schema
+// Configuration schema (model is fixed in code; not stored in user config)
 export const CommitConfigSchema = z.object({
   apiKey: ApiKeySchema.optional(),
-  model: z.enum(ALLOWED_MODELS).default(AI_DEFAULT_MODEL),
 });
 
 // Git diff schema

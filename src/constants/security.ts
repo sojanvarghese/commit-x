@@ -7,13 +7,6 @@ export const DEFAULT_LIMITS: ResourceLimits = {
   timeoutMs: 25_000, // 25 seconds (middle ground from performance)
 };
 
-export const ALLOWED_CONFIG_KEYS = ["apiKey", "model"];
-export const ALLOWED_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-3.1-flash-lite-preview",
-];
-
 export const SUSPICIOUS_PATTERNS = [
   /\.\./, // Parent directory references
   /\/\.\./, // Parent directory references with slash

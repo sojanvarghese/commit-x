@@ -1,6 +1,5 @@
 export interface CommitConfig {
   apiKey?: string;
-  model?: string;
 }
 
 export interface GitDiff {
@@ -34,6 +33,7 @@ export interface CommitOptions {
   dryRun?: boolean;
   interactive?: boolean;
   all?: boolean; // Stage all files and commit together (traditional workflow)
+  useCached?: boolean; // Reuse persisted AI results across runs (default: false)
 }
 
 export interface CommitGroup {
