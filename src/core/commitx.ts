@@ -1,14 +1,13 @@
+import process from "process";
 import { lightColors } from "../utils/colors.js";
 import { lightSpinner } from "../utils/spinner.js";
 import { prompt } from "../utils/prompts.js";
-import process from "process";
 import { GitService } from "../services/git.js";
 import { AIService } from "../services/ai.js";
-import type { TimeoutCalculationOptions } from "../utils/timeout.js";
 import type {
   CommitOptions,
   CommitSuggestion,
-  GitDiff,
+  GitStatus,
 } from "../types/common.js";
 import {
   WARNING_MESSAGES,
@@ -17,6 +16,7 @@ import {
 } from "../constants/messages.js";
 import { UI_CONSTANTS } from "../constants/ui.js";
 import { exitProcess, handleError } from "../utils/process-utils.js";
+import { commitFilesBatch } from "./commit-orchestrator.js";
 
 export class CommitX {
   private readonly gitService: GitService;
@@ -25,9 +25,6 @@ export class CommitX {
   constructor() {
     this.gitService = new GitService();
   }
-
-  private readonly getFileName = (filePath: string): string =>
-    filePath.split("/").pop() ?? filePath;
 
   private getAIService(): AIService {
     if (!CommitX.aiServiceInstance) {
@@ -55,13 +52,14 @@ export class CommitX {
       }
 
       const unstagedFiles = await this.gitService.getUnstagedFiles();
-
       if (unstagedFiles.length === 0) {
         console.log(lightColors.yellow(WARNING_MESSAGES.NO_CHANGES_DETECTED));
         return;
       }
 
-      const processedCount = await this.commitFilesBatch(
+      const processedCount = await commitFilesBatch(
+        this.gitService,
+        () => this.getAIService(),
         unstagedFiles,
         options
       );
@@ -108,7 +106,7 @@ export class CommitX {
 
     const commitMessage: string =
       options.message ??
-      (await this.generateCommitMessage(options.interactive));
+      (await this.generateCommitMessage(options));
 
     if (!commitMessage) {
       console.log(lightColors.yellow(WARNING_MESSAGES.NO_COMMIT_MESSAGE));
@@ -116,8 +114,9 @@ export class CommitX {
     }
 
     if (options.dryRun) {
-      console.log(`${lightColors.blue(INFO_MESSAGES.DRY_RUN_COMMIT)}
-${lightColors.white(`"${commitMessage}"`)}`);
+      console.log(
+        `${lightColors.blue(INFO_MESSAGES.DRY_RUN_COMMIT)}\n${lightColors.white(`"${commitMessage}"`)}`
+      );
       return;
     }
 
@@ -130,180 +129,8 @@ ${lightColors.white(`"${commitMessage}"`)}`);
     exitProcess(0);
   };
 
-  private readonly commitFilesBatch = async (
-    files: string[],
-    options: CommitOptions
-  ): Promise<number> => {
-    const spinner = lightSpinner(
-      "Analyzing files for intelligent grouping..."
-    ).start();
-
-    try {
-      const analyzedDiffs = await this.gitService.getFileDiffs(files, false);
-      const allDiffs: GitDiff[] = [];
-      const skippedFiles: string[] = [];
-
-      for (const file of analyzedDiffs) {
-        const totalChanges = file.additions + file.deletions;
-
-        if (this.shouldSkipFile(file, totalChanges)) {
-          this.logSkippedFile(this.getFileName(file.file), file);
-          skippedFiles.push(file.file);
-          continue;
-        }
-
-        allDiffs.push(file);
-      }
-
-      if (allDiffs.length === 0) {
-        spinner.fail("No valid files to process");
-        return 0;
-      }
-
-      spinner.message = "Using AI to group related changes...";
-
-      const aggregatedResult =
-        await this.getAIService().generateAggregatedCommits(allDiffs);
-
-      if (aggregatedResult.groups.length === 0) {
-        spinner.fail("AI grouping returned no commit groups");
-        return 0;
-      }
-
-      spinner.succeed(
-        `AI grouped ${allDiffs.length} files into ${aggregatedResult.groups.length} logical commits`
-      );
-
-      let processedCount = 0;
-      for (const group of aggregatedResult.groups) {
-        try {
-          const groupName =
-            group.files.length > 1
-              ? `${group.files.length} files`
-              : this.getFileName(group.files[0]);
-
-          let processedFilesInGroup = 0;
-
-          if (options.dryRun) {
-            console.log(`${lightColors.blue(`  Would commit ${groupName}:`)}
-${lightColors.gray(`  Files: ${group.files.map(f => this.getFileName(f)).join(", ")}`)}
-${lightColors.blue(`  Message: "${group.message}"`)}`);
-            processedFilesInGroup = group.files.length;
-          } else {
-            const commitSpinner = lightSpinner(
-              `Committing ${groupName}...`
-            ).start();
-            const stagedFiles: string[] = [];
-
-            // Calculate timeout metrics for this group
-            const groupDiffs = allDiffs.filter(diff =>
-              group.files.includes(diff.file)
-            );
-            const totalChanges = groupDiffs.reduce(
-              (sum, diff) => sum + diff.additions + diff.deletions,
-              0
-            );
-            const totalDiffSize = groupDiffs.reduce(
-              (sum, diff) => sum + (diff.changes?.length || 0),
-              0
-            );
-            const fileCount = group.files.length;
-
-            const timeoutOptions: Omit<
-              TimeoutCalculationOptions,
-              "operationType"
-            > = {
-              fileCount,
-              totalChanges,
-              diffSize: totalDiffSize,
-            };
-
-            // Debug logging for timeout calculation
-            if (
-              process.env.DEBUG_TIMEOUTS ||
-              process.env.NODE_ENV === "development"
-            ) {
-              console.log(
-                lightColors.gray(
-                  `  🕒 Timeout metrics: ${fileCount} files, ${totalChanges} changes, ${Math.round(totalDiffSize / 1024)}KB diff`
-                )
-              );
-            }
-
-            try {
-              await this.gitService.stageFiles(group.files, timeoutOptions);
-              stagedFiles.push(...group.files);
-            } catch (error) {
-              commitSpinner.fail(
-                lightColors.yellow(`Failed to stage files for group: ${error}`)
-              );
-              continue;
-            }
-
-            await this.gitService.waitForLockRelease();
-            await this.gitService.commit(group.message, timeoutOptions);
-
-            const actualGroupName =
-              stagedFiles.length > 1
-                ? `${stagedFiles.length} files`
-                : this.getFileName(stagedFiles[0]);
-
-            commitSpinner.succeed(`✅ ${actualGroupName}: ${group.message}`);
-            processedFilesInGroup = stagedFiles.length;
-          }
-
-          processedCount += processedFilesInGroup;
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          console.error(
-            lightColors.red(`  Failed to commit group: ${errorMessage}`)
-          );
-        }
-      }
-
-      if (skippedFiles.length > 0) {
-        console.log(
-          lightColors.yellow(
-            `Skipped ${skippedFiles.length} files (empty or failed analysis)`
-          )
-        );
-      }
-
-      return processedCount;
-    } catch (error) {
-      spinner.fail("Commit processing failed");
-      console.error(lightColors.red(`Processing error: ${error}`));
-      return 0;
-    }
-  };
-
-  private readonly shouldSkipFile = (
-    fileDiff: GitDiff,
-    totalChanges: number
-  ): boolean => {
-    return (
-      totalChanges === 0 &&
-      (!fileDiff.changes || fileDiff.changes.trim() === "") &&
-      !fileDiff.isDeleted
-    );
-  };
-
-  private readonly logSkippedFile = (
-    fileName: string,
-    fileDiff: GitDiff
-  ): void => {
-    if (fileDiff.isNew) {
-      console.log(lightColors.yellow(`  Skipping empty new file: ${fileName}`));
-    } else {
-      console.log(
-        lightColors.yellow(`  Skipping file with no changes: ${fileName}`)
-      );
-    }
-  };
-
   private readonly generateCommitMessage = async (
-    interactive: boolean = true
+    options: CommitOptions
   ): Promise<string> => {
     const spinner = lightSpinner("Analyzing changes...").start();
 
@@ -316,8 +143,10 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
       }
 
       spinner.message = "Using AI to group related changes...";
-      const aggregatedResult =
-        await this.getAIService().generateAggregatedCommits(diffs);
+      const aggregatedResult = await this.getAIService().generateAggregatedCommits(
+        diffs,
+        { useCached: options.useCached }
+      );
 
       if (aggregatedResult.groups.length === 0) {
         spinner.fail("AI grouping returned no commit groups");
@@ -331,15 +160,16 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
         `Generated commit message for ${group.files.length} file(s)`
       );
 
+      const interactive = options.interactive ?? true;
       if (!interactive || !process.stdin.isTTY) {
         return commitMessage;
       }
 
-      const suggestions = [
+      const suggestions: CommitSuggestion[] = [
         {
           message: commitMessage,
           description: group.description,
-          confidence: group.confidence || 0.7,
+          confidence: group.confidence ?? 0.7,
         },
       ];
 
@@ -398,23 +228,20 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
       case "skip":
         return "";
 
-      case "custom":
+      case "custom": {
         const { customMessage } = await prompt({
           customMessage: {
             type: "input",
             message: `Enter commit message${file ? ` for ${lightColors.cyan(file)}` : ""}:`,
             validate: (input: string): string | boolean => {
-              if (!input.trim()) {
-                return "Commit message cannot be empty";
-              }
-              if (input.length > 72) {
-                return "First line should be 72 characters or less";
-              }
+              if (!input.trim()) return "Commit message cannot be empty";
+              if (input.length > 72) return "First line should be 72 characters or less";
               return true;
             },
           },
         });
         return customMessage;
+      }
 
       default:
         return selected;
@@ -430,14 +257,14 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
     if (status.unstaged.length > 0) {
       output += `\n${lightColors.yellow("Modified files:")}`;
       output += status.unstaged
-        .map((file: string) => `\n  ${lightColors.red("M")} ${file}`)
+        .map(file => `\n  ${lightColors.red("M")} ${file}`)
         .join("");
     }
 
     if (status.untracked.length > 0) {
       output += `\n${lightColors.yellow("Untracked files:")}`;
       output += status.untracked
-        .map((file: string) => `\n  ${lightColors.red("??")} ${file}`)
+        .map(file => `\n  ${lightColors.red("??")} ${file}`)
         .join("");
     }
 
@@ -464,35 +291,7 @@ ${lightColors.blue(`  Message: "${group.message}"`)}`);
       const status = await this.gitService.getStatus();
       const repoInfo = await this.gitService.getRepoInfo();
 
-      let statusOutput = `${lightColors.bold(`\n📁 Repository: ${repoInfo.name}`)}
-${lightColors.bold(`🌿 Branch: ${repoInfo.branch}`)}
-`;
-
-      if (status.staged.length > 0) {
-        statusOutput += `\n${lightColors.green("✅ Staged changes:")}`;
-        statusOutput += status.staged
-          .map(file => `\n  ${lightColors.green("A")} ${file}`)
-          .join("");
-        statusOutput += "\n";
-      }
-
-      if (status.unstaged.length > 0) {
-        statusOutput += `\n${lightColors.yellow("📝 Unstaged changes:")}`;
-        statusOutput += status.unstaged
-          .map(file => `\n  ${lightColors.yellow("M")} ${file}`)
-          .join("");
-        statusOutput += "\n";
-      }
-
-      if (status.untracked.length > 0) {
-        statusOutput += `\n${lightColors.red("❓ Untracked files:")}`;
-        statusOutput += status.untracked
-          .map(file => `\n  ${lightColors.red("??")} ${file}`)
-          .join("");
-        statusOutput += "\n";
-      }
-
-      console.log(statusOutput);
+      console.log(this.renderStatus(status, repoInfo));
 
       console.log(
         status.total === 0
@@ -500,17 +299,48 @@ ${lightColors.bold(`🌿 Branch: ${repoInfo.branch}`)}
           : lightColors.blue(`📊 Total changes: ${status.total}`)
       );
 
-      // Show last commit
       const lastCommit = await this.gitService.getLastCommitMessage();
       if (lastCommit) {
         console.log(lightColors.gray(`\n💬 Last commit: "${lastCommit}"`));
       }
 
-      // Force exit to prevent delay
       exitProcess(0);
     } catch (error) {
       handleError(error);
     }
+  };
+
+  private readonly renderStatus = (
+    status: GitStatus,
+    repoInfo: { name: string; branch: string }
+  ): string => {
+    let output = `${lightColors.bold(`\n📁 Repository: ${repoInfo.name}`)}\n${lightColors.bold(`🌿 Branch: ${repoInfo.branch}`)}\n`;
+
+    if (status.staged.length > 0) {
+      output += `\n${lightColors.green("✅ Staged changes:")}`;
+      output += status.staged
+        .map(file => `\n  ${lightColors.green("A")} ${file}`)
+        .join("");
+      output += "\n";
+    }
+
+    if (status.unstaged.length > 0) {
+      output += `\n${lightColors.yellow("📝 Unstaged changes:")}`;
+      output += status.unstaged
+        .map(file => `\n  ${lightColors.yellow("M")} ${file}`)
+        .join("");
+      output += "\n";
+    }
+
+    if (status.untracked.length > 0) {
+      output += `\n${lightColors.red("❓ Untracked files:")}`;
+      output += status.untracked
+        .map(file => `\n  ${lightColors.red("??")} ${file}`)
+        .join("");
+      output += "\n";
+    }
+
+    return output;
   };
 
   diff = async (): Promise<void> => {
@@ -522,11 +352,8 @@ ${lightColors.bold(`🌿 Branch: ${repoInfo.branch}`)}
       }
 
       const summary = await this.gitService.getChangesSummary();
-      console.log(`${lightColors.blue("📋 Changes Summary:")}
+      console.log(`${lightColors.blue("📋 Changes Summary:")}\n\n${summary}`);
 
-${summary}`);
-
-      // Force exit to prevent delay
       exitProcess(0);
     } catch (error) {
       handleError(error);
