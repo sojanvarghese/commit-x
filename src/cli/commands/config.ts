@@ -41,7 +41,11 @@ export const registerConfigCommand = (program: Command): void => {
           const config = ConfigManager.getInstance();
           const parsedValue = parseConfigValue(value);
           await config.set(key as keyof typeof config.getConfig, parsedValue);
-          console.log(lightColors.green(`✅ Set ${key} = ${parsedValue}`));
+          const ack =
+            key === "apiKey"
+              ? "✅ API key updated"
+              : `✅ Set ${key} = ${parsedValue}`;
+          console.log(lightColors.green(ack));
         },
         { operation: "configSet", key }
       );
@@ -78,9 +82,13 @@ export const registerConfigCommand = (program: Command): void => {
               key === "apiKey"
                 ? config.getApiKey()
                 : config.get(key as keyof typeof config.getConfig);
-            console.log(
-              `${key}: ${key === "apiKey" && value ? "********" : value}`
-            );
+            const display =
+              key === "apiKey"
+                ? value
+                  ? "********"
+                  : "Not set"
+                : value;
+            console.log(`${key}: ${display}`);
             return;
           }
 
