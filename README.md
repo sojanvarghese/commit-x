@@ -11,12 +11,13 @@
 
 ## ✨ Features
 
-- **Intelligent Grouping** - Automatically groups related file changes into logical commits
-- **Smart Analysis** - Understands code changes and generates contextual commit messages
-- **Dynamic Timeouts** - Smart timeout calculations based on file size, changes, and complexity
-- **Intelligent Fallbacks** - Summary messages for large files, lock files, and build artifacts
-- **Security-First** - Path validation, input sanitization, and secure API key handling
-- **Fast & Reliable** - Optimized performance with retry logic and error recovery
+- **Intelligent grouping** — Groups related unstaged changes into multiple logical commits (default `cx` flow)
+- **Smart analysis** — Gemini reads sanitized diffs; large diffs are compressed (additions prioritized over deletions past a size threshold)
+- **Deterministic pre-grouping** — Lockfiles, manifests, docs, and similar files get sensible commits without overloading the model
+- **Dropped-file recovery** — If the model omits paths from its JSON, a focused second pass retries those files before any minimal fallback
+- **Dynamic timeouts** — Timeouts scale with diff size, file count, and change volume
+- **Security-first** — Privacy gate, path checks, and API key via environment variable (not written to disk)
+- **Resilience** — Model fallback chain, retries, and optional `--use-cached` to reuse on-disk AI results when you want speed over freshness
 
 ## 🚀 Quick Start
 
@@ -29,6 +30,20 @@
 ```bash
 # Install globally from npm
 npm install -g @sojanvarghese/commit-x
+```
+
+### Upgrading
+
+If you already installed the CLI globally with npm, pull the latest published version:
+
+```bash
+npm install -g @sojanvarghese/commit-x@latest
+```
+
+Check the installed version:
+
+```bash
+cx --version
 ```
 
 ### Setup
@@ -44,29 +59,35 @@ export GEMINI_API_KEY="your_api_key_here"
 ### Usage
 
 ```bash
-# Process files with AI-powered intelligent grouping (recommended)
+# Default: AI groups unstaged changes into multiple commits (recommended)
 cx
 
-# Stage all files and commit together (also uses AI grouping)
+# Traditional workflow: stage everything (prompted), then one commit
+# (AI suggests a single message from the staged diff unless you use -m)
 cx commit --all
 
-# Preview commits without executing
+# Preview multi-commit AI plan without committing
 cx commit --dry-run
+
+# Reuse cached AI grouping from a previous run (default is always fresh)
+cx commit --use-cached
 ```
 
 ## 📖 Commands
 
 | Command | Description |
 |---------|-------------|
-| `cx` | Process files with AI-powered intelligent grouping |
-| `cx commit --all` | Stage all files and commit together (uses AI grouping) |
-| `cx commit --dry-run` | Preview commits without executing |
-| `cx commit -m "message"` | Use custom commit message |
-| `cx commit --all --interactive` | Interactive mode for traditional workflow |
+| `cx` | AI groups **unstaged** changes into multiple logical commits |
+| `cx commit --all` | Traditional workflow: stage all (with confirmation), then **one** commit |
+| `cx commit --dry-run` | Show the AI commit plan without running `git commit` |
+| `cx commit --use-cached` | Reuse on-disk cached AI results (off by default) |
+| `cx commit -m "message"` | Traditional workflow with your message (skips AI message) |
+| `cx commit --all --interactive` | Traditional workflow with interactive message selection |
 | `cx status` | Show repository status |
 | `cx diff` | Show unstaged changes summary |
 | `cx config` | View configuration |
-| `cx config set <key> <value>` | Set configuration value |
+| `cx config get [key]` | Print stored configuration; **never prints a raw API key** (masked or omitted) |
+| `cx config set <key> <value>` | Set a configuration value |
 | `cx config reset` | Reset configuration to defaults |
 | `cx setup` | Interactive setup |
 | `cx privacy` | Show privacy settings and data handling information |
@@ -83,13 +104,11 @@ cx config
 cx config reset
 ```
 
-### Configuration Options
+### Configuration options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `apiKey` | string | - | Gemini AI API key (use environment variable) |
+Use the **`GEMINI_API_KEY`** environment variable for Gemini authentication. The key is not written to the config file. **`cx config get`** never prints it in plain text (masked when set, otherwise “Not set”), and **`cx config set`** does not echo it in the success message after an update.
 
-The CLI picks the Gemini model automatically (`gemini-3.1-flash-lite-preview` first, then `gemini-2.5-flash-lite`, then `gemini-2.5-flash` if a call fails).
+The Gemini model is chosen in code (not via config): `gemini-3.1-flash-lite-preview` first, then `gemini-2.5-flash-lite`, then `gemini-2.5-flash` if a call fails.
 
 ## Acknowledgments
 
