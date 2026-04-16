@@ -12,7 +12,6 @@ import {
   CONFIG_FILE as CONFIG_FILE_NAME,
   CONFIG_FILE_MODE,
   CONFIG_DIR_MODE,
-  DEFAULT_CONFIG,
 } from "./constants/config.js";
 
 const CONFIG_DIR = path.join(os.homedir(), CONFIG_DIR_NAME);
@@ -48,7 +47,7 @@ export class ConfigManager {
         // Validate loaded configuration using Zod
         const result = CommitConfigSchema.safeParse(userConfig);
         if (result.success) {
-          return { ...DEFAULT_CONFIG, ...result.data };
+          return { ...result.data };
         } else {
           console.warn(
             "Invalid config data, using defaults:",
@@ -63,7 +62,7 @@ export class ConfigManager {
       );
     }
 
-    return DEFAULT_CONFIG;
+    return {};
   };
 
   public saveConfig = async (config: Partial<CommitConfig>): Promise<void> => {
@@ -155,7 +154,7 @@ export class ConfigManager {
   };
 
   public reset = (): void => {
-    this.config = { ...DEFAULT_CONFIG };
-    void this.saveConfig(this.config);
+    this.config = {};
+    void this.saveConfig({});
   };
 }
