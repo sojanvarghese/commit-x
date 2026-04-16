@@ -8,13 +8,17 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const TEST_API_KEY = "test-api-key-12345";
 
-const loadClasses = async () => {
-  const module = await import("../dist/index.js");
+const loadModule = async () => import("../dist/index.js");
 
+const loadClasses = async () => {
+  const module = await loadModule();
   return {
     AIService: await module.AIService(),
     CommitX: await module.CommitX(),
     GitService: await module.GitService(),
+    aiPrompt: module.aiPrompt,
+    aiCommitGroup: module.aiCommitGroup,
+    diffMinimizer: module.diffMinimizer,
   };
 };
 
@@ -145,58 +149,11 @@ test("getChangesSummary collects diffs with bounded concurrency", async () => {
   assert.ok(maxInFlightDiffs <= 4, "expected bounded concurrency");
 });
 
-test("commitFilesBatch stages grouped files in one git add", async () => {
-  const { CommitX } = await loadClasses();
-  const commitX = new CommitX();
-  const stageFilesCalls = [];
-  const stageFileCalls = [];
-
-  commitX.gitService = {
-    getFileDiffs: async files =>
-      files.map(file => ({
-        file,
-        additions: 4,
-        deletions: 1,
-        changes: `diff for ${file}`,
-        isNew: false,
-        isDeleted: false,
-        isRenamed: false,
-      })),
-    stageFiles: async files => {
-      stageFilesCalls.push(files);
-    },
-    stageFile: async file => {
-      stageFileCalls.push(file);
-    },
-    waitForLockRelease: async () => {},
-    commit: async () => {},
-  };
-  commitX.getAIService = () => ({
-    generateAggregatedCommits: async () => ({
-      groups: [
-        {
-          files: ["src/a.ts", "src/b.ts"],
-          message: "Updated grouped files together",
-          confidence: 0.92,
-        },
-      ],
-    }),
-  });
-
-  await commitX.commitFilesBatch(["src/a.ts", "src/b.ts"], {});
-
-  assert.deepEqual(stageFilesCalls, [["src/a.ts", "src/b.ts"]]);
-  assert.deepEqual(stageFileCalls, []);
-});
-
 test("AI prompt builder keeps the prompt lean", async () => {
-  const { AIService } = await loadClasses();
-  process.env.GEMINI_API_KEY = TEST_API_KEY;
-
-  const service = new AIService();
+  const { aiPrompt } = await loadClasses();
   const diffs = [
     {
-      file: "/repo/src/a.ts",
+      file: "src/a.ts",
       additions: 12,
       deletions: 3,
       changes: "a".repeat(1200),
@@ -205,7 +162,7 @@ test("AI prompt builder keeps the prompt lean", async () => {
       isRenamed: false,
     },
     {
-      file: "/repo/src/b.ts",
+      file: "src/b.ts",
       additions: 8,
       deletions: 2,
       changes: "b".repeat(1200),
@@ -215,9 +172,267 @@ test("AI prompt builder keeps the prompt lean", async () => {
     },
   ];
 
-  const { prompt } = service.buildAggregatedPrompt(diffs, "/repo");
+  const { prompt } = aiPrompt.buildAggregatedPrompt(diffs);
 
   assert.ok(prompt.length < 7000, `prompt was too large: ${prompt.length}`);
   assert.equal(prompt.includes("good_groupings"), false);
   assert.equal(prompt.includes("bad_groupings"), false);
+});
+
+test("oversized prompt content drops import churn and collapses blank lines", async () => {
+  const { aiPrompt } = await loadClasses();
+  const diff = {
+    file: "src/routes.ts",
+    additions: 80,
+    deletions: 12,
+    changes: [
+      ...Array.from(
+        { length: 300 },
+        (_, index) => `+import dependency${index} from "lib-${index}";`
+      ),
+      "",
+      "",
+      "",
+      "+const routeConfig = createRoutes(app);",
+      "+registerRoute(routeConfig);",
+    ].join("\n"),
+    isNew: false,
+    isDeleted: false,
+    isRenamed: false,
+  };
+
+  const { prompt } = aiPrompt.buildAggregatedPrompt([diff]);
+
+  assert.equal(prompt.includes('import dependency0 from "lib-0"'), false);
+  assert.equal(prompt.includes("\n\n\n"), false);
+  assert.equal(prompt.includes("registerRoute(routeConfig);"), true);
+});
+
+test("boilerplate stripping removes comments, console.log, and whitespace-only changes", async () => {
+  const { aiPrompt } = await loadClasses();
+  const boilerplateLines = Array.from(
+    { length: 200 },
+    (_, i) => `+// Comment line ${i} that adds bulk`
+  );
+  const diff = {
+    file: "src/handler.ts",
+    additions: 220,
+    deletions: 5,
+    changes: [
+      ...boilerplateLines,
+      "+/** JSDoc block */",
+      "+ * @param x description",
+      "+ */",
+      "+console.log('debug output');",
+      "+console.debug('more debug');",
+      "+   ",
+      "+const handler = async (req) => {",
+      "+  return processRequest(req);",
+      "+};",
+    ].join("\n"),
+    isNew: false,
+    isDeleted: false,
+    isRenamed: false,
+  };
+
+  const filler = Array.from({ length: 29 }, (_, i) => ({
+    file: `src/filler${i}.ts`,
+    additions: 5,
+    deletions: 1,
+    changes: `+const filler${i} = true;`,
+    isNew: false,
+    isDeleted: false,
+    isRenamed: false,
+  }));
+
+  const { prompt } = aiPrompt.buildAggregatedPrompt([diff, ...filler]);
+
+  assert.equal(prompt.includes("Comment line"), false);
+  assert.equal(prompt.includes("JSDoc block"), false);
+  assert.equal(prompt.includes("console.log"), false);
+  assert.equal(prompt.includes("console.debug"), false);
+  assert.equal(prompt.includes("processRequest"), true);
+});
+
+test("repetitive diff lines are collapsed", async () => {
+  const { aiPrompt } = await loadClasses();
+  const diffs = Array.from({ length: 60 }, (_, i) => ({
+    file: `src/file${i}.ts`,
+    additions: 30,
+    deletions: 0,
+    changes: Array.from(
+      { length: 30 },
+      (_, j) => `+const variable${j} = getValue(${j});`
+    ).join("\n"),
+    isNew: false,
+    isDeleted: false,
+    isRenamed: false,
+  }));
+
+  const { prompt } = aiPrompt.buildAggregatedPrompt(diffs);
+
+  assert.ok(prompt.includes("similar lines omitted"));
+});
+
+test("small repeated diff lines are preserved below collapse threshold", async () => {
+  const { diffMinimizer } = await loadClasses();
+  const content = [
+    "+const value = getThing();",
+    "+const value = getThing();",
+    "+const value = getThing();",
+    "+const value = getThing();",
+    "+const value = getThing();",
+    "+const alpha = 1;",
+    "+const beta = 2;",
+    "+const gamma = 3;",
+    "+const delta = 4;",
+    "+const epsilon = 5;",
+  ].join("\n");
+
+  const collapsed = diffMinimizer.collapseRepetitiveLines(content);
+
+  assert.equal(
+    collapsed.match(/\+const value = getThing\(\);/g)?.length ?? 0,
+    5
+  );
+  assert.equal(collapsed.includes("similar lines omitted"), false);
+});
+
+test("pre-grouping auto-groups lockfile + manifest and sends other changes to AI", async () => {
+  const { aiCommitGroup } = await loadClasses();
+  const diffs = [
+    { file: "package.json", additions: 2, deletions: 1, changes: "dep change", isNew: false, isDeleted: false, isRenamed: false },
+    { file: "yarn.lock", additions: 100, deletions: 50, changes: "lock update", isNew: false, isDeleted: false, isRenamed: false },
+    { file: "src/old-a.ts", additions: 0, deletions: 10, changes: "", isNew: false, isDeleted: true, isRenamed: false },
+    { file: "src/old-b.ts", additions: 0, deletions: 20, changes: "", isNew: false, isDeleted: true, isRenamed: false },
+    { file: "src/old-c.ts", additions: 0, deletions: 15, changes: "", isNew: false, isDeleted: true, isRenamed: false },
+  ];
+
+  const result = aiCommitGroup.preGroupDeterministicFiles(diffs);
+
+  assert.equal(result.autoGroups.length, 1);
+  assert.ok(result.autoGroups[0].files.includes("package.json"));
+  assert.ok(result.autoGroups[0].files.includes("yarn.lock"));
+  assert.equal(result.autoGroups[0].message, "Updated project dependencies");
+
+  assert.deepEqual(
+    result.aiDiffs.map(diff => diff.file),
+    ["src/old-a.ts", "src/old-b.ts", "src/old-c.ts"]
+  );
+});
+
+test("package.json without a lockfile stays in AI path (manifest category)", async () => {
+  const { aiCommitGroup } = await loadClasses();
+  const diffs = [
+    {
+      file: "package.json",
+      additions: 2,
+      deletions: 1,
+      changes: '+  "scripts": {\n+    "build": "node cli.js"\n+  }',
+      isNew: false,
+      isDeleted: false,
+      isRenamed: false,
+    },
+  ];
+
+  const result = aiCommitGroup.preGroupDeterministicFiles(diffs);
+
+  assert.equal(result.autoGroups.length, 0);
+  assert.equal(result.aiDiffs.length, 1);
+  assert.equal(result.aiDiffs[0].file, "package.json");
+});
+
+test("compact prompt format uses pipe-delimited headers", async () => {
+  const { aiPrompt } = await loadClasses();
+  const diffs = [
+    {
+      file: "src/app.ts",
+      additions: 5,
+      deletions: 2,
+      changes: "+const x = 1;",
+      isNew: false,
+      isDeleted: false,
+      isRenamed: false,
+    },
+  ];
+
+  const { prompt } = aiPrompt.buildAggregatedPrompt(diffs);
+
+  assert.ok(prompt.includes("[1] M src/app.ts (+5/-2)"));
+  assert.equal(prompt.includes('"name"'), false);
+  assert.equal(prompt.includes('"status"'), false);
+  assert.equal(prompt.includes('"stats"'), false);
+});
+
+test("hard truncation keeps both early and late diff context", async () => {
+  const { diffMinimizer } = await loadClasses();
+  const diff = {
+    file: "src/feature.ts",
+    additions: 40,
+    deletions: 0,
+    changes: [
+      "+const startMarker = initializeFeature('alpha');",
+      ...Array.from(
+        { length: 40 },
+        (_, index) =>
+          `+const intermediateValue${index} = computeThing(${index}, "${"x".repeat(24)}");`
+      ),
+      "+return finalizeFeature('omega');",
+    ].join("\n"),
+    isNew: false,
+    isDeleted: false,
+    isRenamed: false,
+  };
+
+  const compressed = diffMinimizer.compressDiffForPrompt(diff, 160);
+
+  assert.equal(compressed.compressed, true);
+  assert.ok(compressed.content.includes("startMarker"));
+  assert.ok(compressed.content.includes("finalizeFeature"));
+  assert.ok(compressed.content.includes("omitted"));
+});
+
+test("generated files get summary-only diffs in git layer", async () => {
+  const files = ["dist/bundle.min.js"];
+  const { service, status } = await createGitServiceForSummaryTests(files);
+  let fullDiffCalled = false;
+
+  service.git = {
+    status: async () => status,
+    diff: async () => {
+      fullDiffCalled = true;
+      return "full diff content";
+    },
+    diffSummary: async () => ({
+      files: [{ file: "dist/bundle.min.js", insertions: 500, deletions: 200 }],
+    }),
+  };
+
+  const result = await service.getFileDiff("/repo/dist/bundle.min.js", false);
+
+  assert.equal(fullDiffCalled, false);
+  assert.ok(result.changes.includes("Generated file updated"));
+  assert.equal(result.additions, 500);
+  assert.equal(result.deletions, 200);
+});
+
+test("git diff requests zero context for AI grouping", async () => {
+  const files = ["src/a.ts"];
+  const { service, status } = await createGitServiceForSummaryTests(files);
+  let diffArgs = null;
+
+  service.git = {
+    status: async () => status,
+    diff: async args => {
+      diffArgs = args;
+      return "@@ -1 +1 @@\n+const value = 1;";
+    },
+    diffSummary: async () => ({
+      files: [{ file: "src/a.ts", insertions: 1, deletions: 0 }],
+    }),
+  };
+
+  await service.getFileDiff("/repo/src/a.ts", false);
+
+  assert.ok(diffArgs.includes("-U0"));
 });
