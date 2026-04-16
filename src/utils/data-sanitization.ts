@@ -115,6 +115,7 @@ export const sanitizeDiffContent = (
   ];
 
   for (const pattern of sensitiveFilePatterns) {
+    pattern.lastIndex = 0;
     if (pattern.test(sanitized)) {
       warnings.push("Sensitive file pattern detected");
       sanitized = sanitized.replace(pattern, "[SENSITIVE_FILE]");
@@ -175,6 +176,7 @@ export const shouldSkipFileForAI = (
 
   // Skip files with sensitive patterns in content
   for (const pattern of SENSITIVE_PATTERNS) {
+    pattern.lastIndex = 0;
     if (pattern.test(content)) {
       return { skip: true, reason: "Contains potential sensitive data" };
     }
