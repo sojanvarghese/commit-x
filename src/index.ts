@@ -1,10 +1,15 @@
-export const CommitX = (): Promise<typeof import("./core/commitx.js").CommitX> =>
+import type { CommitX as CommitXClass } from "./core/commitx.js";
+import type { GitService as GitServiceClass } from "./services/git.js";
+import type { AIService as AIServiceClass } from "./services/ai.js";
+import type { ConfigManager as ConfigManagerClass } from "./config.js";
+
+export const CommitX = (): Promise<typeof CommitXClass> =>
   import("./core/commitx.js").then(m => m.CommitX);
-export const GitService = (): Promise<typeof import("./services/git.js").GitService> =>
+export const GitService = (): Promise<typeof GitServiceClass> =>
   import("./services/git.js").then(m => m.GitService);
-export const AIService = (): Promise<typeof import("./services/ai.js").AIService> =>
+export const AIService = (): Promise<typeof AIServiceClass> =>
   import("./services/ai.js").then(m => m.AIService);
-export const ConfigManager = (): Promise<typeof import("./config.js").ConfigManager> =>
+export const ConfigManager = (): Promise<typeof ConfigManagerClass> =>
   import("./config.js").then(m => m.ConfigManager);
 
 export type * from "./types/common.js";
@@ -20,10 +25,9 @@ export * as aiPrivacyGate from "./services/ai-privacy-gate.js";
 export * as aiPrompt from "./services/ai-prompt.js";
 export * as aiCommitGroup from "./services/ai-commit-group.js";
 export * as validation from "./schemas/validation.js";
+export * as security from "./utils/security.js";
 
-const getCommitX = async (): Promise<
-  typeof import("./core/commitx.js").CommitX
-> => {
+const getCommitX = async (): Promise<typeof CommitXClass> => {
   const { CommitX } = await import("./core/commitx.js");
   return CommitX;
 };
