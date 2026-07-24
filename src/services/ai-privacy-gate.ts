@@ -52,7 +52,11 @@ export const enforcePrivacyGate = (
       continue;
     }
 
-    approvedDiffs.push(validated.output);
+    const { oldPath, ...validatedDiff } = validated.output;
+    approvedDiffs.push({
+      ...validatedDiff,
+      ...(oldPath === undefined ? {} : { oldPath }),
+    });
   }
 
   const sanitizedDiffs = approvedDiffs.map(diff =>
