@@ -18,5 +18,5 @@ export interface ErrorContext {
   key?: string;
   attempt?: number;
   maxRetries?: number;
-  additionalInfo?: Record<string, any>;
+  additionalInfo?: Record<string, unknown>;
 }

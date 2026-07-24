@@ -65,7 +65,8 @@ export const stripBoilerplate = (content: string): string => {
   for (const line of lines) {
     const trimmed = line.replace(/^[+-]\s*/, "");
 
-    if (/^(import\s.+|export\s+(?:\*|\{).*from\s.+);?\s*$/.test(trimmed)) continue;
+    if (/^(import\s.+|export\s+(?:\*|\{).*from\s.+);?\s*$/.test(trimmed))
+      continue;
     if (/^\/\/.*$/.test(trimmed)) continue;
     if (/^\s*(\*|\/\*\*|\/\*|\*\/)/.test(trimmed)) continue;
     if (/^console\.(log|debug|info)\(/.test(trimmed)) continue;
@@ -89,7 +90,8 @@ export const collapseRepetitiveLines = (content: string): string => {
 
   const flushRepeated = (result: string[], repeatedLines: string[]): void => {
     if (repeatedLines.length >= 6) {
-      result.push(repeatedLines[0]);
+      const firstRepeatedLine = repeatedLines[0];
+      if (firstRepeatedLine) result.push(firstRepeatedLine);
       result.push(`  [... ${repeatedLines.length - 1} similar lines omitted]`);
     } else {
       result.push(...repeatedLines);
@@ -97,19 +99,23 @@ export const collapseRepetitiveLines = (content: string): string => {
   };
 
   const result: string[] = [];
-  let repeatedLines: string[] = [lines[0]];
-  let prevPattern = normalizePattern(lines[0]);
+  const firstLine = lines[0];
+  if (firstLine === undefined) return content;
+  let repeatedLines: string[] = [firstLine];
+  let prevPattern = normalizePattern(firstLine);
 
   for (let i = 1; i < lines.length; i++) {
-    const pattern = normalizePattern(lines[i]);
+    const line = lines[i];
+    if (line === undefined) continue;
+    const pattern = normalizePattern(line);
 
     if (pattern === prevPattern) {
-      repeatedLines.push(lines[i]);
+      repeatedLines.push(line);
       continue;
     }
 
     flushRepeated(result, repeatedLines);
-    repeatedLines = [lines[i]];
+    repeatedLines = [line];
     prevPattern = pattern;
   }
 

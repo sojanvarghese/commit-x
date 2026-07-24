@@ -45,7 +45,7 @@ const isColorDisabled = (): boolean => {
   // - Not in a TTY
   // - CI environment without FORCE_COLOR
   return Boolean(
-    process.env.NO_COLOR ||
+    process.env.NO_COLOR !== undefined ||
     process.env.FORCE_COLOR === "0" ||
     (!process.stdout.isTTY && !process.env.FORCE_COLOR) ||
     (process.env.CI && !process.env.FORCE_COLOR)

@@ -1,93 +1,99 @@
-// Lightweight prompts utility as inquirer alternative
-// Focused on the essential functionality needed by commit-x
-
-import { createInterface } from "readline";
+import {
+  createInterface,
+  type Interface as ReadlineInterface,
+} from "node:readline";
 import { lightColors } from "./colors.js";
 
-export interface BasePromptOptions {
+type PromptValidation = string | boolean | Promise<string | boolean>;
+
+export interface BasePromptOptions<T> {
   message: string;
-  default?: any;
-  validate?: (input: any) => string | boolean | Promise<string | boolean>;
+  default?: T;
+  validate?: (input: T) => PromptValidation;
 }
 
-export interface ConfirmOptions extends BasePromptOptions {
+export interface ConfirmOptions extends BasePromptOptions<boolean> {
   type: "confirm";
-  default?: boolean;
 }
 
-export interface InputOptions extends BasePromptOptions {
+export interface InputOptions extends BasePromptOptions<string> {
   type: "input";
-  default?: string;
 }
 
-export interface ListOptions extends BasePromptOptions {
+export interface PromptChoice<T> {
+  name: string;
+  value: T;
+  short?: string;
+}
+
+export interface ListOptions<T = unknown> extends BasePromptOptions<T> {
   type: "list";
-  choices: Array<{ name: string; value: any; short?: string }>;
+  choices: Array<PromptChoice<T>>;
   pageSize?: number;
 }
 
-export type PromptOptions = ConfirmOptions | InputOptions | ListOptions;
+export type PromptOptions =
+  ConfirmOptions | InputOptions | ListOptions<unknown>;
+export type PromptQuestion = Record<string, PromptOptions>;
 
-export interface PromptQuestion {
-  [key: string]: PromptOptions;
-}
+type PromptAnswer<T> = T extends ConfirmOptions
+  ? boolean
+  : T extends InputOptions
+    ? string
+    : T extends ListOptions<infer Value>
+      ? Value
+      : never;
+
+export type PromptAnswers<T extends PromptQuestion> = {
+  [Key in keyof T]: PromptAnswer<T[Key]>;
+};
 
 export class LightPrompts {
-  private rl: any;
+  private rl: ReadlineInterface | null = null;
 
-  private createReadline() {
-    if (!this.rl) {
-      this.rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-        terminal: true,
-      });
-    }
+  private createReadline(): ReadlineInterface {
+    this.rl ??= createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+    });
     return this.rl;
   }
 
-  private closeReadline() {
-    if (this.rl) {
-      this.rl.close();
-      this.rl = null;
-    }
+  private closeReadline(): void {
+    this.rl?.close();
+    this.rl = null;
   }
 
-  async prompt<T = any>(questions: PromptQuestion): Promise<T> {
-    const results: any = {};
+  async prompt<const Questions extends PromptQuestion>(
+    questions: Questions
+  ): Promise<PromptAnswers<Questions>> {
+    const results: Record<string, unknown> = {};
     const rl = this.createReadline();
 
     try {
       for (const [name, options] of Object.entries(questions)) {
-        let result: any;
-
         switch (options.type) {
           case "confirm":
-            result = await this.confirmPrompt(rl, options);
+            results[name] = await this.confirmPrompt(rl, options);
             break;
           case "input":
-            result = await this.inputPrompt(rl, options);
+            results[name] = await this.inputPrompt(rl, options);
             break;
           case "list":
-            result = await this.listPrompt(rl, options);
+            results[name] = await this.listPrompt(rl, options);
             break;
-          default:
-            throw new Error(
-              `Unsupported prompt type: ${(options as any).type}`
-            );
         }
-
-        results[name] = result;
       }
 
-      return results as T;
+      return results as PromptAnswers<Questions>;
     } finally {
       this.closeReadline();
     }
   }
 
   private async confirmPrompt(
-    rl: any,
+    rl: ReadlineInterface,
     options: ConfirmOptions
   ): Promise<boolean> {
     const defaultValue = options.default ?? false;
@@ -95,7 +101,7 @@ export class LightPrompts {
     const message = `${lightColors.cyan("?")} ${options.message}${suffix} `;
 
     return new Promise((resolve, reject) => {
-      const askQuestion = () => {
+      const askQuestion = (): void => {
         rl.question(message, async (answer: string) => {
           const trimmed = answer.trim().toLowerCase();
 
@@ -140,14 +146,18 @@ export class LightPrompts {
     });
   }
 
-  private async inputPrompt(rl: any, options: InputOptions): Promise<string> {
+  private async inputPrompt(
+    rl: ReadlineInterface,
+    options: InputOptions
+  ): Promise<string> {
     const defaultSuffix = options.default ? ` (${options.default})` : "";
     const message = `${lightColors.cyan("?")} ${options.message}${defaultSuffix} `;
 
     return new Promise((resolve, reject) => {
-      const askQuestion = () => {
+      const askQuestion = (): void => {
         rl.question(message, async (answer: string) => {
-          const result = answer.trim() || options.default || "";
+          const trimmed = answer.trim();
+          const result = trimmed === "" ? (options.default ?? "") : trimmed;
 
           if (options.validate) {
             try {
@@ -177,10 +187,12 @@ export class LightPrompts {
     });
   }
 
-  private async listPrompt(rl: any, options: ListOptions): Promise<any> {
-    const choices = options.choices;
+  private async listPrompt(
+    rl: ReadlineInterface,
+    options: ListOptions<unknown>
+  ): Promise<unknown> {
+    const { choices } = options;
 
-    // Display choices
     console.log(`${lightColors.cyan("?")} ${options.message}`);
     choices.forEach((choice, index) => {
       console.log(`  ${lightColors.dim(`${index + 1})`)} ${choice.name}`);
@@ -189,26 +201,26 @@ export class LightPrompts {
     const message = `${lightColors.cyan("  Answer:")} `;
 
     return new Promise((resolve, reject) => {
-      const askQuestion = () => {
+      const askQuestion = (): void => {
         rl.question(message, async (answer: string) => {
           const trimmed = answer.trim();
           let selectedIndex: number;
 
-          // Try to parse as number
-          const num = parseInt(trimmed, 10);
-          if (!isNaN(num) && num >= 1 && num <= choices.length) {
-            selectedIndex = num - 1;
+          const choiceNumber = Number.parseInt(trimmed, 10);
+          if (
+            !Number.isNaN(choiceNumber) &&
+            choiceNumber >= 1 &&
+            choiceNumber <= choices.length
+          ) {
+            selectedIndex = choiceNumber - 1;
           } else {
-            // Try to find by name
             const foundIndex = choices.findIndex(
               choice =>
                 choice.name.toLowerCase() === trimmed.toLowerCase() ||
                 choice.short?.toLowerCase() === trimmed.toLowerCase()
             );
 
-            if (foundIndex !== -1) {
-              selectedIndex = foundIndex;
-            } else {
+            if (foundIndex === -1) {
               console.log(
                 lightColors.red(
                   `Please choose a number between 1-${choices.length} or enter the choice name.`
@@ -217,9 +229,14 @@ export class LightPrompts {
               askQuestion();
               return;
             }
+            selectedIndex = foundIndex;
           }
 
           const selected = choices[selectedIndex];
+          if (!selected) {
+            reject(new Error("Selected prompt choice is unavailable"));
+            return;
+          }
 
           if (options.validate) {
             try {
@@ -252,5 +269,8 @@ export class LightPrompts {
 
 const lightPrompts = new LightPrompts();
 
-export const prompt = lightPrompts.prompt.bind(lightPrompts);
+export const prompt = <const Questions extends PromptQuestion>(
+  questions: Questions
+): Promise<PromptAnswers<Questions>> => lightPrompts.prompt(questions);
+
 export default { prompt };

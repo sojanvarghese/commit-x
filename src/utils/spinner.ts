@@ -3,14 +3,7 @@ import { lightColors } from "./colors.js";
 export interface SpinnerOptions {
   text?: string;
   color?:
-    | "red"
-    | "green"
-    | "yellow"
-    | "blue"
-    | "magenta"
-    | "cyan"
-    | "white"
-    | "gray";
+    "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "white" | "gray";
   interval?: number;
   stream?: typeof process.stderr;
   frames?: string[];
@@ -24,7 +17,7 @@ export class LightSpinner {
   private frames: string[];
   private isSpinning = false;
   private currentFrame = 0;
-  private timer?: ReturnType<typeof setTimeout>;
+  private timer: ReturnType<typeof setInterval> | undefined;
   private lastLength = 0;
 
   private static readonly DEFAULT_FRAMES = [
@@ -163,13 +156,11 @@ export class LightSpinner {
       return;
     }
 
-    const frame = this.frames[this.currentFrame];
+    const frame = this.frames[this.currentFrame] ?? "";
     const colorKey = this.color as keyof typeof lightColors;
-    const colorFn = (
-      typeof lightColors[colorKey] === "function"
-        ? lightColors[colorKey]
-        : lightColors.cyan
-    ) as (text: string) => string;
+    const selectedColor = lightColors[colorKey];
+    const colorFn =
+      typeof selectedColor === "function" ? selectedColor : lightColors.cyan;
     const line = `${colorFn(frame)} ${this.text}`;
 
     this.clear();

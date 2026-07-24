@@ -61,7 +61,8 @@ export class SecureError extends Error {
 
 export class ErrorHandler {
   private static instance: ErrorHandler;
-  private readonly errorLog: Array<{ error: SecureError; timestamp: Date }> = [];
+  private readonly errorLog: Array<{ error: SecureError; timestamp: Date }> =
+    [];
 
   private constructor() {
     // Private constructor for singleton pattern
@@ -99,24 +100,57 @@ export class ErrorHandler {
     const message = (error as Error)?.message ?? "Unknown error occurred";
     const sanitizedMessage = sanitizeError(message);
 
-    const errorCode = (error as { code?: string })?.code;
+    const errorDetails = error as {
+      code?: string | number;
+      status?: number;
+      statusCode?: number;
+    };
+    const errorCode = errorDetails.code;
+    const httpStatus =
+      errorDetails.status ??
+      errorDetails.statusCode ??
+      (typeof errorCode === "number" ? errorCode : undefined);
     let errorType: ErrorType;
-    switch (errorCode) {
-      case "ENOENT":
-      case "EACCES":
-      case "EPERM":
-      case "ENOTDIR":
-      case "EISDIR":
-        errorType = ErrorType.FILE_SYSTEM_ERROR;
+    switch (httpStatus) {
+      case 400:
+        errorType = ErrorType.VALIDATION_ERROR;
         break;
-      case "ECONNREFUSED":
-      case "ENOTFOUND":
-      case "ETIMEDOUT":
+      case 401:
+      case 403:
+        errorType = ErrorType.CONFIG_ERROR;
+        break;
+      case 408:
+        errorType = ErrorType.TIMEOUT_ERROR;
+        break;
+      case 429:
+      case 500:
+      case 502:
+      case 503:
+      case 504:
         errorType = ErrorType.NETWORK_ERROR;
         break;
       default:
-        errorType = this.detectErrorTypeFromMessage(message);
-        break;
+        errorType = ErrorType.UNKNOWN_ERROR;
+    }
+
+    if (errorType === ErrorType.UNKNOWN_ERROR) {
+      switch (errorCode) {
+        case "ENOENT":
+        case "EACCES":
+        case "EPERM":
+        case "ENOTDIR":
+        case "EISDIR":
+          errorType = ErrorType.FILE_SYSTEM_ERROR;
+          break;
+        case "ECONNREFUSED":
+        case "ENOTFOUND":
+        case "ETIMEDOUT":
+          errorType = ErrorType.NETWORK_ERROR;
+          break;
+        default:
+          errorType = this.detectErrorTypeFromMessage(message);
+          break;
+      }
     }
 
     const isRecoverable = this.isRecoverableError(errorType);
@@ -211,17 +245,6 @@ export class ErrorHandler {
         return assertNever(type);
     }
   };
-
-  public handleProcessExit = (code: number = 1): void => {
-    if (this.errorLog.length > 0) {
-      console.error(
-        lightColors.gray(
-          `\n📊 Error Summary: ${this.errorLog.length} errors logged`
-        )
-      );
-    }
-    process.exit(code);
-  };
 }
 
 export const withErrorHandling = <T>(
@@ -237,10 +260,6 @@ export const withErrorHandling = <T>(
       return result.catch(error => {
         const secureError = errorHandler.handleError(error, context);
 
-        if (!secureError.isRecoverable) {
-          errorHandler.handleProcessExit(1);
-        }
-
         throw secureError;
       });
     }
@@ -248,10 +267,6 @@ export const withErrorHandling = <T>(
     return result;
   } catch (error) {
     const secureError = errorHandler.handleError(error, context);
-
-    if (!secureError.isRecoverable) {
-      errorHandler.handleProcessExit(1);
-    }
 
     throw secureError;
   }
@@ -270,17 +285,33 @@ export const withRetry = async <T>(
     try {
       return await operation();
     } catch (error) {
-      lastError = errorHandler.handleError(error, {
-        ...context,
-        attempt,
-        maxRetries,
-      });
+      lastError =
+        error instanceof SecureError
+          ? error
+          : errorHandler.handleError(error, {
+              ...context,
+              attempt,
+              maxRetries,
+            });
 
-      if (!lastError.isRecoverable || attempt === maxRetries) {
+      const retryableType =
+        lastError.type === ErrorType.NETWORK_ERROR ||
+        lastError.type === ErrorType.TIMEOUT_ERROR ||
+        lastError.type === ErrorType.AI_SERVICE_ERROR;
+
+      if (
+        !lastError.isRecoverable ||
+        !retryableType ||
+        attempt === maxRetries
+      ) {
         break;
       }
 
-      const delay = baseDelay * Math.pow(2, attempt - 1);
+      const exponentialDelay = baseDelay * Math.pow(2, attempt - 1);
+      const jitter = Math.floor(
+        Math.random() * Math.min(250, Math.max(1, baseDelay))
+      );
+      const delay = exponentialDelay + jitter;
       console.log(
         lightColors.yellow(
           `⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`
