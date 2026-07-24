@@ -1,4 +1,4 @@
-import process from "process";
+import process from "node:process";
 import type { Command } from "commander";
 import { lightColors } from "../../utils/colors.js";
 import { lazyModules } from "../../utils/lazy-loader.js";

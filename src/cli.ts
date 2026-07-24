@@ -3,12 +3,9 @@
 const startupStart = performance.now();
 
 import { Command } from "commander";
-import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
-import process from "process";
+import process from "node:process";
 import { lightColors } from "./utils/colors.js";
-import { lazyModules, preloadCriticalModules } from "./utils/lazy-loader.js";
+import { lazyModules } from "./utils/lazy-loader.js";
 import { PERFORMANCE_FLAGS } from "./constants/performance.js";
 import { registerCommitCommand } from "./cli/commands/commit.js";
 import { registerStatusCommand } from "./cli/commands/status.js";
@@ -19,8 +16,6 @@ import { registerPrivacyCommand } from "./cli/commands/privacy.js";
 import { registerHelpExamplesCommand } from "./cli/commands/help-examples.js";
 import { registerDebugCommand } from "./cli/commands/debug.js";
 
-preloadCriticalModules(process.argv[2]);
-
 if (PERFORMANCE_FLAGS.ENABLE_PERFORMANCE_MONITORING) {
   process.nextTick(() => {
     const startupTime = performance.now() - startupStart;
@@ -30,18 +25,12 @@ if (PERFORMANCE_FLAGS.ENABLE_PERFORMANCE_MONITORING) {
   });
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const packageJson = JSON.parse(
-  readFileSync(join(__dirname, "../package.json"), "utf-8")
-);
-
 const program = new Command();
 
 program
   .name("cx")
   .description("🚀 AI-powered Git commit assistant")
-  .version(packageJson.version);
+  .version(__COMMIT_X_VERSION__);
 
 registerCommitCommand(program);
 registerStatusCommand(program);
@@ -54,18 +43,14 @@ registerDebugCommand(program);
 
 const runDefaultCommit = async (): Promise<void> => {
   try {
-    const { withPerformanceTracking } = await import(
-      "./utils/performance.js"
-    );
+    const { withPerformanceTracking } = await import("./utils/performance.js");
     await withPerformanceTracking("default-commit", async () => {
       const { CommitX } = await lazyModules.commitX();
       const commitX = new CommitX();
       await commitX.commit();
     });
   } catch (error) {
-    const { handleErrorImmediate } = await import(
-      "./utils/process-utils.js"
-    );
+    const { handleErrorImmediate } = await import("./utils/process-utils.js");
     handleErrorImmediate(error);
   }
 };
@@ -81,7 +66,7 @@ ${lightColors.blue("  cx --help              # Show all available commands")}
 ${lightColors.blue("  cx commit --help       # Show commit command options")}
 ${lightColors.blue("  cx help-examples       # Show usage examples")}
 ${lightColors.gray("\nFor more information, visit: https://github.com/sojanvarghese/commit-x")}`);
-  process.exit(1);
+  process.exitCode = 1;
 });
 
 program.on("option:*", async (): Promise<void> => {
@@ -92,7 +77,7 @@ program.on("option:*", async (): Promise<void> => {
 ${lightColors.blue("  cx --help              # Show all available commands")}
 ${lightColors.blue("  cx commit --help       # Show commit command options")}
 ${lightColors.gray("\nFor more information, visit: https://github.com/sojanvarghese/commit-x")}`);
-  process.exit(1);
+  process.exitCode = 1;
 });
 
 if (PERFORMANCE_FLAGS.ENABLE_PERFORMANCE_MONITORING) {
