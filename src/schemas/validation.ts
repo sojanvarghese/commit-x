@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { SUSPICIOUS_COMMIT_PATTERNS } from "../constants/security.js";
 
 export const ApiKeySchema = v.pipe(
   v.string(),
@@ -38,20 +39,21 @@ export const CommitMessageSchema = v.pipe(
   v.check(msg => msg.trim().length > 0, "Commit message cannot be empty"),
   v.check(
     message =>
-      [
-        /<script/i,
-        /javascript:/i,
-        /data:/i,
-        /vbscript:/i,
-        /onload=/i,
-        /onerror=/i,
-        /onclick=/i,
-        /<iframe/i,
-      ].some(pattern => pattern.test(message)),
+      !SUSPICIOUS_COMMIT_PATTERNS.some(pattern => pattern.test(message)),
     "Commit message contains potentially malicious content"
   ),
   v.transform(val => val.trim())
 );
+
+export const CommitGroupSchema = v.object({
+  files: v.pipe(
+    v.array(v.pipe(v.string(), v.minLength(1))),
+    v.minLength(1, "A commit group must contain at least one file")
+  ),
+  message: CommitMessageSchema,
+  description: v.optional(v.pipe(v.string(), v.maxLength(500))),
+  confidence: v.pipe(v.number(), v.minValue(0), v.maxValue(1)),
+});
 
 // Validation result type
 export type ValidationResult<T = unknown> = {
