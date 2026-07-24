@@ -1,4 +1,4 @@
-import process from "process";
+import process from "node:process";
 import { lightColors } from "../utils/colors.js";
 import { lightSpinner } from "../utils/spinner.js";
 import { prompt } from "../utils/prompts.js";
@@ -64,6 +64,15 @@ export class CommitX {
         options
       );
 
+      if (processedCount === 0) {
+        console.log(
+          lightColors.yellow(
+            "\nNo files were committed or included in the plan."
+          )
+        );
+        return;
+      }
+
       console.log(
         lightColors.green(
           processedCount > 1
@@ -105,8 +114,7 @@ export class CommitX {
     }
 
     const commitMessage: string =
-      options.message ??
-      (await this.generateCommitMessage(options));
+      options.message ?? (await this.generateCommitMessage(options));
 
     if (!commitMessage) {
       console.log(lightColors.yellow(WARNING_MESSAGES.NO_COMMIT_MESSAGE));
@@ -142,18 +150,12 @@ export class CommitX {
         return "";
       }
 
-      spinner.message = "Using AI to group related changes...";
-      const aggregatedResult = await this.getAIService().generateAggregatedCommits(
+      spinner.message = "Using AI to summarize the staged changes...";
+      const group = await this.getAIService().generateSingleCommit(
         diffs,
-        { useCached: options.useCached }
+        options.useCached === undefined ? {} : { useCached: options.useCached }
       );
 
-      if (aggregatedResult.groups.length === 0) {
-        spinner.fail("AI grouping returned no commit groups");
-        return "";
-      }
-
-      const group = aggregatedResult.groups[0];
       const commitMessage = group.message;
 
       spinner.succeed(
@@ -168,8 +170,10 @@ export class CommitX {
       const suggestions: CommitSuggestion[] = [
         {
           message: commitMessage,
-          description: group.description,
           confidence: group.confidence ?? 0.7,
+          ...(group.description === undefined
+            ? {}
+            : { description: group.description }),
         },
       ];
 
@@ -235,7 +239,8 @@ export class CommitX {
             message: `Enter commit message${file ? ` for ${lightColors.cyan(file)}` : ""}:`,
             validate: (input: string): string | boolean => {
               if (!input.trim()) return "Commit message cannot be empty";
-              if (input.length > 72) return "First line should be 72 characters or less";
+              if (input.length > 72)
+                return "First line should be 72 characters or less";
               return true;
             },
           },

@@ -1,14 +1,10 @@
-import process from "process";
+import process from "node:process";
 import { lightColors } from "../utils/colors.js";
 import { lightSpinner } from "../utils/spinner.js";
 import type { GitService } from "../services/git.js";
 import type { AIService } from "../services/ai.js";
 import type { TimeoutCalculationOptions } from "../utils/timeout.js";
-import type {
-  CommitGroup,
-  CommitOptions,
-  GitDiff,
-} from "../types/common.js";
+import type { CommitGroup, CommitOptions, GitDiff } from "../types/common.js";
 
 const getFileName = (filePath: string): string =>
   filePath.split("/").pop() ?? filePath;
@@ -94,23 +90,28 @@ const executeGroupCommit = async (
   try {
     await gitService.stageFiles(group.files, timeoutOptions);
     stagedFiles.push(...group.files);
+
+    await gitService.commit(group.message, timeoutOptions);
+
+    const onlyFile = stagedFiles[0];
+    const actualGroupName =
+      stagedFiles.length > 1
+        ? `${stagedFiles.length} files`
+        : getFileName(onlyFile ?? "file");
+
+    commitSpinner.succeed(`✅ ${actualGroupName}: ${group.message}`);
+    return stagedFiles.length;
   } catch (error) {
-    commitSpinner.fail(
-      lightColors.yellow(`Failed to stage files for group: ${error}`)
-    );
-    return 0;
+    try {
+      await gitService.unstageFiles(group.files, timeoutOptions);
+    } catch (rollbackError) {
+      console.error(
+        lightColors.red(`  Failed to restore Git index: ${rollbackError}`)
+      );
+    }
+    commitSpinner.fail(lightColors.red(`Failed to commit group: ${error}`));
+    throw error;
   }
-
-  await gitService.waitForLockRelease();
-  await gitService.commit(group.message, timeoutOptions);
-
-  const actualGroupName =
-    stagedFiles.length > 1
-      ? `${stagedFiles.length} files`
-      : getFileName(stagedFiles[0]);
-
-  commitSpinner.succeed(`✅ ${actualGroupName}: ${group.message}`);
-  return stagedFiles.length;
 };
 
 const processGroup = async (
@@ -119,20 +120,15 @@ const processGroup = async (
   allDiffs: GitDiff[],
   dryRun: boolean
 ): Promise<number> => {
+  const firstFile = group.files[0];
   const groupName =
     group.files.length > 1
       ? `${group.files.length} files`
-      : getFileName(group.files[0]);
+      : getFileName(firstFile ?? "file");
 
-  try {
-    return dryRun
-      ? previewGroupDryRun(group, groupName)
-      : await executeGroupCommit(gitService, group, groupName, allDiffs);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(lightColors.red(`  Failed to commit group: ${errorMessage}`));
-    return 0;
-  }
+  return dryRun
+    ? previewGroupDryRun(group, groupName)
+    : executeGroupCommit(gitService, group, groupName, allDiffs);
 };
 
 export const commitFilesBatch = async (
@@ -146,6 +142,10 @@ export const commitFilesBatch = async (
   ).start();
 
   try {
+    if (!options.dryRun) {
+      await gitService.assertCleanIndexForBatch();
+    }
+
     const analyzedDiffs = await gitService.getFileDiffs(files, false);
     const allDiffs: GitDiff[] = [];
     const skippedFiles: string[] = [];
@@ -168,7 +168,7 @@ export const commitFilesBatch = async (
 
     const aggregatedResult = await getAIService().generateAggregatedCommits(
       allDiffs,
-      { useCached: options.useCached }
+      options.useCached === undefined ? {} : { useCached: options.useCached }
     );
 
     if (aggregatedResult.groups.length === 0) {
@@ -202,6 +202,6 @@ export const commitFilesBatch = async (
   } catch (error) {
     spinner.fail("Commit processing failed");
     console.error(lightColors.red(`Processing error: ${error}`));
-    return 0;
+    throw error;
   }
 };
