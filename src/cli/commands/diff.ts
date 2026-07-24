@@ -7,9 +7,8 @@ export const registerDiffCommand = (program: Command): void => {
     .alias("d")
     .description("Show unstaged changes summary")
     .action(async () => {
-      const { withErrorHandling } = await import(
-        "../../utils/error-handler.js"
-      );
+      const { withErrorHandling } =
+        await import("../../utils/error-handler.js");
       return withErrorHandling(
         async (): Promise<void> => {
           const { CommitX } = await lazyModules.commitX();

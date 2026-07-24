@@ -1,6 +1,5 @@
-import process from "process";
+import process from "node:process";
 import type { Command } from "commander";
-import * as v from "valibot";
 import { lightColors } from "../../utils/colors.js";
 import { lazyModules } from "../../utils/lazy-loader.js";
 
@@ -26,9 +25,8 @@ ${lightColors.blue("  cx commit --help                 # Show all options")}`);
 };
 
 const validateMessage = async (message: string): Promise<string> => {
-  const { CommitMessageSchema } = await import(
-    "../../schemas/validation.js"
-  );
+  const v = await import("valibot");
+  const { CommitMessageSchema } = await import("../../schemas/validation.js");
   const { ErrorType } = await import("../../types/error-handler.js");
   const { SecureError } = await import("../../utils/error-handler.js");
 
@@ -65,20 +63,16 @@ export const registerCommitCommand = (program: Command): void => {
       "--all",
       "Stage all files and commit together (traditional workflow)"
     )
-    .option(
-      "--use-cached",
-      "Reuse cached AI results (fresh by default)",
-      false
-    )
+    .option("--use-cached", "Reuse cached AI results (fresh by default)", false)
     .action(async (options: CommitCliOptions): Promise<void> => {
-      const { withErrorHandling } = await import(
-        "../../utils/error-handler.js"
-      );
+      const { withErrorHandling } =
+        await import("../../utils/error-handler.js");
       return withErrorHandling(
         async (): Promise<void> => {
           if (options.interactive && !options.all) {
             printInteractiveUsageHint();
-            process.exit(1);
+            process.exitCode = 1;
+            return;
           }
 
           if (options.message) {
@@ -86,20 +80,13 @@ export const registerCommitCommand = (program: Command): void => {
           }
 
           const operation = options.all ? "commit-traditional" : "commit-ai";
-          const { withPerformanceTracking } = await import(
-            "../../utils/performance.js"
-          );
+          const { withPerformanceTracking } =
+            await import("../../utils/performance.js");
 
           await withPerformanceTracking(operation, async () => {
             const { CommitX } = await lazyModules.commitX();
             const commitX = new CommitX();
-            await commitX.commit({
-              message: options.message,
-              dryRun: options.dryRun,
-              interactive: options.interactive,
-              all: options.all,
-              useCached: options.useCached,
-            });
+            await commitX.commit(options);
           });
         },
         { operation: "commit" }

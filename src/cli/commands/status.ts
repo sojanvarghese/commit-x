@@ -7,9 +7,8 @@ export const registerStatusCommand = (program: Command): void => {
     .alias("s")
     .description("Show repository status and changes")
     .action(async () => {
-      const { withErrorHandling } = await import(
-        "../../utils/error-handler.js"
-      );
+      const { withErrorHandling } =
+        await import("../../utils/error-handler.js");
       return withErrorHandling(
         async (): Promise<void> => {
           const { CommitX } = await lazyModules.commitX();
