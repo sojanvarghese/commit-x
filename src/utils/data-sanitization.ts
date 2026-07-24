@@ -1,42 +1,80 @@
-import * as path from "path";
-import * as os from "os";
+import * as path from "node:path";
 import {
   SENSITIVE_EXTENSIONS,
   SENSITIVE_JSON_FILES,
   SENSITIVE_DIRECTORIES,
 } from "../constants/security.js";
 
-// Common patterns that might indicate sensitive information
-const SENSITIVE_PATTERNS = [
-  // API keys and tokens
-  /(api[_-]?key|token|secret|password|pwd)\s*[:=]\s*['"]?[a-zA-Z0-9+/=]{20,}['"]?/gi,
-  // Email addresses
-  /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-  // URLs with credentials
-  /https?:\/\/[^:\s]+:[^@\s]+@[^\s]+/g,
-  // Credit card numbers (basic pattern)
-  /\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g,
-  // Social Security Numbers (US)
-  /\b\d{3}-\d{2}-\d{4}\b/g,
-  // Phone numbers
-  /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g,
-  // IP addresses
-  /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g,
-  // Database connection strings
-  /(mongodb|postgresql|mysql|redis):\/\/[^\s]+/gi,
-  // JWT tokens
-  /eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g,
-  // AWS keys
-  /AKIA[0-9A-Z]{16}/g,
-  // Private keys
-  /-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----[\s\S]*?-----END\s+(?:RSA\s+)?PRIVATE\s+KEY-----/g,
-];
+interface SensitivePattern {
+  pattern: RegExp;
+  label: string;
+  blockFile: boolean;
+}
 
-// Patterns to detect potential secrets in comments
-const SECRET_COMMENT_PATTERNS = [
-  /\/\*[\s\S]*?(?:password|secret|key|token)[\s\S]*?\*\//gi,
-  /\/\/.*?(?:password|secret|key|token).*$/gim,
-  /#.*?(?:password|secret|key|token).*$/gim,
+const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
+  {
+    pattern:
+      /(api[_-]?key|access[_-]?token|auth[_-]?token|secret|password|pwd)\s*[:=]\s*['"]?[a-zA-Z0-9+/_.=-]{16,}['"]?/gi,
+    label: "credential assignment",
+    blockFile: true,
+  },
+  {
+    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g,
+    label: "Google API key",
+    blockFile: true,
+  },
+  {
+    pattern:
+      /\b(?:gh[opusr]_[A-Za-z0-9_]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g,
+    label: "GitHub token",
+    blockFile: true,
+  },
+  {
+    pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
+    label: "Slack token",
+    blockFile: true,
+  },
+  {
+    pattern: /https?:\/\/[^:\s]+:[^@\s]+@[^\s]+/g,
+    label: "URL credentials",
+    blockFile: true,
+  },
+  {
+    pattern: /\b(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis):\/\/[^\s]+/gi,
+    label: "database connection string",
+    blockFile: true,
+  },
+  {
+    pattern: /\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g,
+    label: "JWT",
+    blockFile: true,
+  },
+  {
+    pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
+    label: "AWS access key",
+    blockFile: true,
+  },
+  {
+    pattern:
+      /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g,
+    label: "private key",
+    blockFile: true,
+  },
+  {
+    pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+    label: "email address",
+    blockFile: false,
+  },
+  {
+    pattern: /\b\d{3}-\d{2}-\d{4}\b/g,
+    label: "US social security number",
+    blockFile: false,
+  },
+  {
+    pattern: /\b(?:\d[ -]*?){13,19}\b/g,
+    label: "possible payment card number",
+    blockFile: false,
+  },
 ];
 
 export interface SanitizedDiff {
@@ -54,22 +92,17 @@ export interface SanitizedDiff {
 
 export const sanitizeFilePath = (filePath: string, baseDir: string): string => {
   try {
-    // Get the relative path from the base directory
     const relativePath = path.relative(baseDir, filePath);
 
-    // If it's outside the base directory, return just the filename
-    if (relativePath.startsWith("..")) {
+    if (
+      relativePath === ".." ||
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath)
+    ) {
       return path.basename(filePath);
     }
 
-    // Replace username in path with placeholder
-    const homeDir = os.homedir();
-    if (filePath.startsWith(homeDir)) {
-      const relativeToHome = path.relative(homeDir, filePath);
-      return `~/${relativeToHome}`;
-    }
-
-    return relativePath;
+    return relativePath.split(path.sep).join("/");
   } catch {
     // If any error occurs, just return the filename
     return path.basename(filePath);
@@ -82,23 +115,13 @@ export const sanitizeDiffContent = (
   const warnings: string[] = [];
   let sanitized = content;
 
-  // Check for sensitive patterns
-  for (const pattern of SENSITIVE_PATTERNS) {
+  for (const { pattern, label } of SENSITIVE_PATTERNS) {
+    pattern.lastIndex = 0;
     const matches = sanitized.match(pattern);
     if (matches) {
-      warnings.push(
-        `Potential sensitive data detected: ${matches[0].substring(0, 20)}...`
-      );
+      warnings.push(`Potential ${label} redacted`);
+      pattern.lastIndex = 0;
       sanitized = sanitized.replace(pattern, "[REDACTED]");
-    }
-  }
-
-  // Check for secrets in comments
-  for (const pattern of SECRET_COMMENT_PATTERNS) {
-    const matches = sanitized.match(pattern);
-    if (matches) {
-      warnings.push("Potential secrets detected in comments");
-      sanitized = sanitized.replace(pattern, "/* [REDACTED COMMENT] */");
     }
   }
 
@@ -121,6 +144,12 @@ export const sanitizeDiffContent = (
       sanitized = sanitized.replace(pattern, "[SENSITIVE_FILE]");
     }
   }
+
+  // Git patch headers repeat repository paths. The model receives opaque file
+  // IDs, so these transport-level paths add tokens without useful semantics.
+  sanitized = sanitized
+    .replace(/^diff --git .+$/gm, "diff --git [PATHS OMITTED]")
+    .replace(/^(---|\+\+\+|rename from|rename to) .+$/gm, "$1 [PATH OMITTED]");
 
   return { sanitized, warnings };
 };
@@ -151,7 +180,9 @@ export const sanitizeGitDiff = (
     isNew: diff.isNew,
     isDeleted: diff.isDeleted,
     isRenamed: diff.isRenamed,
-    oldPath: diff.oldPath ? sanitizeFilePath(diff.oldPath, baseDir) : undefined,
+    ...(diff.oldPath
+      ? { oldPath: sanitizeFilePath(diff.oldPath, baseDir) }
+      : {}),
     sanitized: warnings.length > 0,
     warnings,
   };
@@ -165,7 +196,11 @@ export const shouldSkipFileForAI = (
   const ext = path.extname(filePath).toLowerCase();
   const fileName = path.basename(filePath).toLowerCase();
 
-  if (SENSITIVE_EXTENSIONS.includes(ext)) {
+  if (
+    fileName === ".env" ||
+    fileName.startsWith(".env.") ||
+    SENSITIVE_EXTENSIONS.includes(ext)
+  ) {
     return { skip: true, reason: "Sensitive file type" };
   }
 
@@ -174,8 +209,10 @@ export const shouldSkipFileForAI = (
     return { skip: true, reason: "Sensitive file type" };
   }
 
-  // Skip files with sensitive patterns in content
-  for (const pattern of SENSITIVE_PATTERNS) {
+  // High-confidence credentials block the whole file. Personal identifiers
+  // are redacted instead, avoiding false-positive file drops.
+  for (const { pattern, blockFile } of SENSITIVE_PATTERNS) {
+    if (!blockFile) continue;
     pattern.lastIndex = 0;
     if (pattern.test(content)) {
       return { skip: true, reason: "Contains potential sensitive data" };
@@ -183,7 +220,7 @@ export const shouldSkipFileForAI = (
   }
 
   // Skip files in sensitive directories
-  const pathParts = filePath.toLowerCase().split(path.sep);
+  const pathParts = filePath.toLowerCase().split(/[\\/]/);
 
   for (const part of pathParts) {
     if (SENSITIVE_DIRECTORIES.includes(part)) {

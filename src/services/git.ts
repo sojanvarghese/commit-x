@@ -1,5 +1,5 @@
-import simpleGit, { type SimpleGit } from "simple-git";
-import { access } from "fs/promises";
+import { simpleGit, type SimpleGit } from "simple-git";
+import { basename, resolve } from "node:path";
 import type { GitDiff, GitStatus } from "../types/common.js";
 import {
   validateAndSanitizePath,
@@ -16,27 +16,33 @@ import {
 import { ERROR_MESSAGES } from "../constants/messages.js";
 import { UI_CONSTANTS } from "../constants/ui.js";
 import { GitCache, type RepoInfo } from "./git-cache.js";
-import {
-  buildFileDiff,
-  mapWithConcurrency,
-  type RawGitStatus,
-} from "./git-diff-builder.js";
+import { buildFileDiff, type RawGitStatus } from "./git-diff-builder.js";
+import { mapWithConcurrency } from "../utils/request-batcher.js";
 
 const DIFF_COLLECTION_CONCURRENCY = 4;
 
 export class GitService {
-  private readonly git: SimpleGit;
+  private git: SimpleGit;
   private repositoryPath: string;
   private readonly cache: GitCache;
 
-  constructor() {
-    this.git = simpleGit();
-    this.repositoryPath = process.cwd();
+  constructor(repositoryPath: string = process.cwd()) {
+    this.repositoryPath = resolve(repositoryPath);
+    this.git = simpleGit({ baseDir: this.repositoryPath });
     this.cache = new GitCache();
   }
 
-  private async getRawStatus(): Promise<RawGitStatus> {
-    return withTimeout(this.git.status(), calculateGitTimeout({}));
+  private async getRawStatus(
+    forceFresh: boolean = false
+  ): Promise<RawGitStatus> {
+    const cached = forceFresh ? undefined : this.cache.getRawStatus();
+    if (cached) return cached;
+    const status = await withTimeout(
+      this.git.status(),
+      calculateGitTimeout({})
+    );
+    this.cache.setRawStatus(status);
+    return status;
   }
 
   private readonly validateFilePaths = (filePaths: string[]): string[] => {
@@ -84,23 +90,21 @@ export class GitService {
     const validation = await validateGitRepository(this.repositoryPath);
     if (validation.isValid && validation.sanitizedValue) {
       this.repositoryPath = validation.sanitizedValue;
-      process.chdir(this.repositoryPath);
+      this.git = simpleGit({ baseDir: this.repositoryPath });
+      return;
     }
+    throw new SecureError(
+      validation.error ?? "Git repository validation failed",
+      ErrorType.GIT_ERROR,
+      { operation: "initializeRepositoryPath" },
+      false
+    );
   }
 
   isGitRepository = async (): Promise<boolean> => {
     return withErrorHandling(
       async () => {
         await this.initializeRepositoryPath();
-        const validation = await validateGitRepository(this.repositoryPath);
-        if (!validation.isValid) {
-          throw new SecureError(
-            `Git repository validation failed for path: ${this.repositoryPath}\nError: ${validation.error}`,
-            ErrorType.GIT_ERROR,
-            { operation: "isGitRepository" },
-            false
-          );
-        }
         return true;
       },
       { operation: "isGitRepository" }
@@ -115,7 +119,11 @@ export class GitService {
 
         const rawStatus = await this.getRawStatus();
         const staged = this.validateFilePaths(rawStatus.staged);
-        const unstaged = this.validateFilePaths(rawStatus.modified);
+        const unstaged = this.validateFilePaths([
+          ...rawStatus.modified,
+          ...rawStatus.deleted,
+          ...rawStatus.renamed.map(rename => rename.to),
+        ]);
         const untracked = this.validateFilePaths(rawStatus.not_added);
         const result: GitStatus = {
           staged,
@@ -134,12 +142,14 @@ export class GitService {
     return withErrorHandling(
       async () => {
         const status = await this.getRawStatus();
-        const allFiles = [
-          ...status.modified,
-          ...status.not_added,
-          ...status.deleted,
-        ];
-        return this.validateFilePaths(allFiles);
+        return this.validateFilePaths(
+          [
+            ...status.modified,
+            ...status.not_added,
+            ...status.deleted,
+            ...status.renamed.map(rename => rename.to),
+          ].filter((file, index, all) => all.indexOf(file) === index)
+        );
       },
       { operation: "getUnstagedFiles" }
     );
@@ -205,7 +215,8 @@ export class GitService {
       ...status.modified,
       ...status.not_added,
       ...status.deleted,
-    ];
+      ...status.renamed.map(rename => rename.to),
+    ].filter((file, index, all) => all.indexOf(file) === index);
 
     if (unstagedFiles.length === 0) return "No unstaged changes found.";
 
@@ -280,16 +291,33 @@ export class GitService {
   ): Promise<void> => {
     return withErrorHandling(
       async () => {
-        const sanitizedFiles = files
-          .map(
-            file =>
-              validateAndSanitizePath(file, this.repositoryPath).sanitizedValue
-          )
-          .filter((file): file is string => Boolean(file));
-
-        if (sanitizedFiles.length === 0) {
+        const status = await this.getRawStatus(true);
+        if (status.staged.length > 0) {
           throw new SecureError(
-            "No valid files to stage",
+            "Cannot stage an intelligent commit group while the Git index contains other changes.",
+            ErrorType.GIT_ERROR,
+            { operation: "stageFiles" },
+            true
+          );
+        }
+
+        const sanitizedFiles: string[] = [];
+        for (const file of files) {
+          const validation = validateAndSanitizePath(file, this.repositoryPath);
+          if (!validation.isValid || !validation.sanitizedValue) {
+            throw new SecureError(
+              validation.error ?? `Invalid file path: ${file}`,
+              ErrorType.SECURITY_ERROR,
+              { operation: "stageFiles", file },
+              false
+            );
+          }
+          sanitizedFiles.push(validation.sanitizedValue);
+        }
+
+        if (sanitizedFiles.length !== files.length || files.length === 0) {
+          throw new SecureError(
+            "Every requested file must be valid before staging",
             ErrorType.SECURITY_ERROR,
             { operation: "stageFiles" },
             false
@@ -304,6 +332,47 @@ export class GitService {
       },
       { operation: "stageFiles" }
     );
+  };
+
+  unstageFiles = async (
+    files: string[],
+    timeoutOptions?: Omit<TimeoutCalculationOptions, "operationType">
+  ): Promise<void> => {
+    return withErrorHandling(
+      async () => {
+        const validatedFiles = files.map(file => {
+          const validation = validateAndSanitizePath(file, this.repositoryPath);
+          if (!validation.isValid || !validation.sanitizedValue) {
+            throw new SecureError(
+              validation.error ?? `Invalid file path: ${file}`,
+              ErrorType.SECURITY_ERROR,
+              { operation: "unstageFiles", file },
+              false
+            );
+          }
+          return validation.sanitizedValue;
+        });
+        if (validatedFiles.length === 0) return;
+        await withTimeout(
+          this.git.reset(["--", ...validatedFiles]),
+          calculateGitTimeout(timeoutOptions ?? {})
+        );
+        this.cache.clear();
+      },
+      { operation: "unstageFiles" }
+    );
+  };
+
+  assertCleanIndexForBatch = async (): Promise<void> => {
+    const status = await this.getRawStatus(true);
+    if (status.staged.length > 0) {
+      throw new SecureError(
+        "Intelligent multi-commit mode requires an empty Git index. Commit or unstage existing staged changes first.",
+        ErrorType.GIT_ERROR,
+        { operation: "assertCleanIndexForBatch" },
+        true
+      );
+    }
   };
 
   commit = async (
@@ -345,22 +414,11 @@ export class GitService {
     if (cached) return cached;
 
     const status = await this.getRawStatus();
-    const remotes = await this.git.getRemotes(true);
-
-    let repoName = "unknown";
-    if (remotes.length > 0) {
-      const origin = remotes.find(
-        (r: { name: string; refs?: { fetch?: string } }) => r.name === "origin"
-      );
-      if (origin?.refs?.fetch) {
-        const match = origin.refs.fetch.match(/\/([^/]+?)(?:\.git)?$/);
-        if (match) {
-          repoName = match[1];
-        }
-      }
-    }
-
-    const result: RepoInfo = { name: repoName, branch: status.current };
+    const repoName = basename(this.repositoryPath) || "unknown";
+    const result: RepoInfo = {
+      name: repoName,
+      branch: status.current ?? "detached HEAD",
+    };
     this.cache.setRepoInfo(result);
     return result;
   };
@@ -376,23 +434,5 @@ export class GitService {
       default:
         return UI_CONSTANTS.FILE_STATUS.MODIFIED;
     }
-  };
-
-  waitForLockRelease = async (maxWaitMs: number = 250): Promise<void> => {
-    const lockPath = `${this.repositoryPath}/.git/index.lock`;
-    const checkInterval = 10;
-    const maxChecks = Math.floor(maxWaitMs / checkInterval);
-
-    for (let i = 0; i < maxChecks; i++) {
-      try {
-        await access(lockPath);
-        await new Promise(resolve => setTimeout(resolve, checkInterval));
-      } catch {
-        await new Promise(resolve => setTimeout(resolve, 5));
-        return;
-      }
-    }
-
-    console.warn("⚠️  Git lock file persisted longer than expected");
   };
 }

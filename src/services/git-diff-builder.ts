@@ -1,5 +1,6 @@
 import type { SimpleGit } from "simple-git";
-import { readFile } from "fs/promises";
+import { lstat, open } from "node:fs/promises";
+import { relative } from "node:path";
 import type { GitDiff } from "../types/common.js";
 import {
   validateAndSanitizePath,
@@ -10,6 +11,7 @@ import { ErrorType } from "../types/error-handler.js";
 import { SecureError } from "../utils/error-handler.js";
 import { calculateGitTimeout } from "../utils/timeout.js";
 import { classifyFile } from "../utils/file-classifier.js";
+import { DEFAULT_LIMITS } from "../constants/security.js";
 
 export type RawGitStatus = Awaited<ReturnType<SimpleGit["status"]>>;
 
@@ -20,9 +22,7 @@ export interface DiffSummaryFile {
 }
 
 const toRelativeFilePath = (file: string, repositoryPath: string): string =>
-  file.startsWith(repositoryPath)
-    ? file.substring(repositoryPath.length + 1)
-    : file;
+  relative(repositoryPath, file).split("\\").join("/");
 
 const findFileSummary = (
   diffSummary: { files: DiffSummaryFile[] },
@@ -45,9 +45,7 @@ const renamedFrom = (
   )?.from;
 
 const isRenamedTo = (status: RawGitStatus, relativeFile: string): boolean =>
-  status.renamed.some(
-    (renamed: { to: string }) => renamed.to === relativeFile
-  );
+  status.renamed.some((renamed: { to: string }) => renamed.to === relativeFile);
 
 const isNewFile = (status: RawGitStatus, relativeFile: string): boolean => {
   if (status.created.includes(relativeFile)) return true;
@@ -56,7 +54,29 @@ const isNewFile = (status: RawGitStatus, relativeFile: string): boolean => {
 
 const isBulkFilePath = (relativeFile: string): boolean => {
   const { category } = classifyFile(relativeFile);
-  return category === "MINIFIED" || category === "BUILD_ARTIFACT";
+  return (
+    category === "MINIFIED" ||
+    category === "BUILD_ARTIFACT" ||
+    category === "LOCK"
+  );
+};
+
+const buildDiffMetadata = (
+  relativeFile: string,
+  status: RawGitStatus,
+  staged: boolean
+): Pick<GitDiff, "isNew" | "isDeleted" | "isRenamed" | "oldPath"> => {
+  const oldPath = renamedFrom(status, relativeFile);
+  const fileStatus = status.files?.find(file => file.path === relativeFile);
+  return {
+    isNew:
+      isNewFile(status, relativeFile) || (staged && fileStatus?.index === "A"),
+    isDeleted:
+      status.deleted.includes(relativeFile) ||
+      (staged ? fileStatus?.index === "D" : fileStatus?.working_dir === "D"),
+    isRenamed: isRenamedTo(status, relativeFile),
+    ...(oldPath === undefined ? {} : { oldPath }),
+  };
 };
 
 const buildSummaryDiff = (
@@ -64,31 +84,27 @@ const buildSummaryDiff = (
   relativeFile: string,
   status: RawGitStatus,
   fileSummary: DiffSummaryFile | undefined,
-  changesLabel: string
+  changesLabel: string,
+  staged: boolean
 ): GitDiff => ({
   file: validatedFile,
   additions: fileSummary?.insertions ?? 0,
   deletions: fileSummary?.deletions ?? 0,
   changes: changesLabel,
-  isNew: isNewFile(status, relativeFile),
-  isDeleted: status.deleted.includes(relativeFile),
-  isRenamed: isRenamedTo(status, relativeFile),
-  oldPath: renamedFrom(status, relativeFile),
+  ...buildDiffMetadata(relativeFile, status, staged),
 });
 
 const emptyDiff = (
   validatedFile: string,
   relativeFile: string,
-  status: RawGitStatus
+  status: RawGitStatus,
+  staged: boolean
 ): GitDiff => ({
   file: validatedFile,
   additions: 0,
   deletions: 0,
   changes: "",
-  isNew: isNewFile(status, relativeFile),
-  isDeleted: status.deleted.includes(relativeFile),
-  isRenamed: isRenamedTo(status, relativeFile),
-  oldPath: renamedFrom(status, relativeFile),
+  ...buildDiffMetadata(relativeFile, status, staged),
 });
 
 const handleBulkFile = async (
@@ -98,44 +114,110 @@ const handleBulkFile = async (
   status: RawGitStatus,
   staged: boolean
 ): Promise<GitDiff | null> => {
-  const summaryArgs = staged ? ["--cached", validatedFile] : [validatedFile];
+  const summaryArgs = staged
+    ? ["--cached", "--", relativeFile]
+    : ["--", relativeFile];
   const summaryTimeout = calculateGitTimeout({ diffSize: 0 });
   try {
     const diffSummary = await withTimeout(
       git.diffSummary(summaryArgs),
       summaryTimeout
     );
-    const fileSummary = findFileSummary(diffSummary, relativeFile, validatedFile);
+    const fileSummary = findFileSummary(
+      diffSummary,
+      relativeFile,
+      validatedFile
+    );
     const additions = fileSummary?.insertions ?? 0;
     const deletions = fileSummary?.deletions ?? 0;
 
+    const { category } = classifyFile(relativeFile);
     return buildSummaryDiff(
       validatedFile,
       relativeFile,
       status,
       fileSummary,
-      `Generated file updated: +${additions}/-${deletions}`
+      category === "LOCK"
+        ? `Lock file updated: +${additions}/-${deletions}`
+        : `Generated file updated: +${additions}/-${deletions}`,
+      staged
     );
   } catch {
     return null;
   }
 };
 
-const handleLockFileFallback = (
+const countPatchChanges = (
+  diff: string
+): { additions: number; deletions: number } => {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) additions++;
+    if (line.startsWith("-") && !line.startsWith("---")) deletions++;
+  }
+  return { additions, deletions };
+};
+
+const readUntrackedDiff = async (
   validatedFile: string,
-  relativeFile: string,
-  status: RawGitStatus,
-  fileSummary: DiffSummaryFile | undefined
-): GitDiff => {
-  const additions = fileSummary?.insertions ?? 0;
-  const deletions = fileSummary?.deletions ?? 0;
-  return buildSummaryDiff(
-    validatedFile,
-    relativeFile,
-    status,
-    fileSummary,
-    `Lock file updated: ${additions} additions, ${deletions} deletions`
-  );
+  relativeFile: string
+): Promise<Pick<GitDiff, "additions" | "deletions" | "changes">> => {
+  const fileStats = await lstat(validatedFile);
+  if (fileStats.isSymbolicLink()) {
+    return {
+      additions: 1,
+      deletions: 0,
+      changes: `Symlink added: ${relativeFile}`,
+    };
+  }
+  if (!fileStats.isFile()) {
+    return {
+      additions: 0,
+      deletions: 0,
+      changes: `Non-regular file added: ${relativeFile}`,
+    };
+  }
+  if (fileStats.size > DEFAULT_LIMITS.maxFileSize) {
+    return {
+      additions: 0,
+      deletions: 0,
+      changes: `Large file added (${fileStats.size} bytes; content omitted)`,
+    };
+  }
+
+  const handle = await open(validatedFile, "r");
+  try {
+    // Prefixing every line with "+" can nearly double newline-heavy input.
+    const bytesToRead = Math.min(
+      fileStats.size,
+      Math.floor(DEFAULT_LIMITS.maxDiffSize / 2)
+    );
+    const buffer = Buffer.alloc(bytesToRead);
+    const { bytesRead } = await handle.read(buffer, 0, bytesToRead, 0);
+    const content = buffer.subarray(0, bytesRead);
+    if (content.includes(0)) {
+      return {
+        additions: 0,
+        deletions: 0,
+        changes: `Binary file added (${fileStats.size} bytes; content omitted)`,
+      };
+    }
+
+    const text = content.toString("utf8");
+    const lines = text.split("\n");
+    const truncated = fileStats.size > bytesRead;
+    return {
+      additions: lines.length,
+      deletions: 0,
+      changes: [
+        ...lines.map(line => `+${line}`),
+        ...(truncated ? ["+[content truncated]"] : []),
+      ].join("\n"),
+    };
+  } finally {
+    await handle.close();
+  }
 };
 
 export const buildFileDiff = async (
@@ -158,31 +240,14 @@ export const buildFileDiff = async (
   const validatedFile = pathValidation.sanitizedValue;
   const relativeFile = toRelativeFilePath(file, repositoryPath);
 
-  if (status.deleted.includes(relativeFile) && !staged) {
-    return {
-      file: validatedFile,
-      additions: 0,
-      deletions: 1,
-      changes: `File deleted: ${validatedFile}`,
-      isNew: false,
-      isDeleted: true,
-      isRenamed: false,
-      oldPath: undefined,
-    };
-  }
-
   if (status.not_added.includes(relativeFile) && !staged) {
-    const fileContent = await readFile(validatedFile, "utf-8");
-    const lines = fileContent.split("\n").length;
+    const untracked = await readUntrackedDiff(validatedFile, relativeFile);
     return {
       file: validatedFile,
-      additions: lines,
-      deletions: 0,
-      changes: `+${fileContent}`,
+      ...untracked,
       isNew: true,
       isDeleted: false,
       isRenamed: false,
-      oldPath: undefined,
     };
   }
 
@@ -198,30 +263,16 @@ export const buildFileDiff = async (
   }
 
   const diffArgs = staged
-    ? ["--cached", "-U0", validatedFile]
-    : ["-U0", validatedFile];
+    ? ["--cached", "-U0", "--", relativeFile]
+    : ["-U0", "--", relativeFile];
   const diffTimeout = calculateGitTimeout({ diffSize: 0 });
 
   try {
-    const [diff, diffSummary] = await Promise.all([
-      withTimeout(git.diff(diffArgs), diffTimeout),
-      withTimeout(git.diffSummary([validatedFile]), diffTimeout),
-    ]);
+    const diff = await withTimeout(git.diff(diffArgs), diffTimeout);
 
     const diffValidation = validateDiffSize(diff);
-    const fileSummary = findFileSummary(diffSummary, relativeFile, validatedFile);
 
     if (!diffValidation.isValid) {
-      const { category } = classifyFile(relativeFile);
-      if (category === "LOCK") {
-        return handleLockFileFallback(
-          validatedFile,
-          relativeFile,
-          status,
-          fileSummary
-        );
-      }
-
       throw new SecureError(
         diffValidation.error ?? "Validation failed",
         ErrorType.VALIDATION_ERROR,
@@ -230,38 +281,16 @@ export const buildFileDiff = async (
       );
     }
 
+    const changeCounts = countPatchChanges(diff);
     return {
       file: validatedFile,
-      additions: fileSummary?.insertions ?? 0,
-      deletions: fileSummary?.deletions ?? 0,
+      additions: changeCounts.additions,
+      deletions: changeCounts.deletions,
       changes: diffValidation.sanitizedValue ?? "",
-      isNew: isNewFile(status, relativeFile),
-      isDeleted: status.deleted.includes(relativeFile),
-      isRenamed: isRenamedTo(status, relativeFile),
-      oldPath: renamedFrom(status, relativeFile),
+      ...buildDiffMetadata(relativeFile, status, staged),
     };
-  } catch {
-    return emptyDiff(validatedFile, relativeFile, status);
+  } catch (error) {
+    if (error instanceof SecureError) throw error;
+    return emptyDiff(validatedFile, relativeFile, status, staged);
   }
-};
-
-export const mapWithConcurrency = async <T, R>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<R>
-): Promise<R[]> => {
-  const results = new Array<R>(items.length);
-  let currentIndex = 0;
-  const workerCount = Math.max(1, Math.min(concurrency, items.length));
-
-  const runners = Array.from({ length: workerCount }, async () => {
-    while (currentIndex < items.length) {
-      const itemIndex = currentIndex++;
-      results[itemIndex] = await worker(items[itemIndex]);
-    }
-  });
-
-  await Promise.all(runners);
-
-  return results;
 };

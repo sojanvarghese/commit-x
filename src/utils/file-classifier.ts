@@ -1,4 +1,4 @@
-import * as path from "path";
+import * as path from "node:path";
 
 export type FileCategory =
   | "LOCK"
@@ -9,13 +9,7 @@ export type FileCategory =
   | "MANIFEST"
   | "REGULAR";
 
-export type Ecosystem =
-  | "NPM"
-  | "RUBY"
-  | "CARGO"
-  | "GO"
-  | "PYTHON"
-  | "PHP";
+export type Ecosystem = "NPM" | "RUBY" | "CARGO" | "GO" | "PYTHON" | "PHP";
 
 export interface Classification {
   category: FileCategory;
@@ -125,11 +119,13 @@ const isGenerated = (filePath: string): boolean =>
 const isBuildArtifact = (filePath: string): boolean => {
   const segments = filePath.split(/[\\/]/);
   for (let i = 0; i < segments.length; i++) {
-    if (!BUILD_PATH_SEGMENTS.has(segments[i])) continue;
+    const segment = segments[i];
+    if (!segment || !BUILD_PATH_SEGMENTS.has(segment)) continue;
     // `src/build/foo.ts`, `tests/dist/fixture.json`, etc. are source-tree
     // files coincidentally named like build dirs — don't auto-commit them.
     for (let j = 0; j < i; j++) {
-      if (SOURCE_DIR_SEGMENTS.has(segments[j])) return false;
+      const parentSegment = segments[j];
+      if (parentSegment && SOURCE_DIR_SEGMENTS.has(parentSegment)) return false;
     }
     return true;
   }
@@ -149,7 +145,10 @@ export const classifyFile = (filePath: string): Classification => {
   }
 
   if (isDoc(baseName)) {
-    return { category: "DOC", deterministicMessage: DETERMINISTIC_MESSAGES.DOC };
+    return {
+      category: "DOC",
+      deterministicMessage: DETERMINISTIC_MESSAGES.DOC,
+    };
   }
 
   if (isMinified(filePath)) {

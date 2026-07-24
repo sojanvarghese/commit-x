@@ -1,26 +1,32 @@
-import * as path from "path";
-import * as fs from "fs";
-import { promisify } from "util";
+import * as path from "node:path";
+import { access, readFile, stat } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import type { ValidationResult } from "../types/security.js";
-import {
-  DEFAULT_LIMITS,
-  SUSPICIOUS_COMMIT_PATTERNS,
-  SUSPICIOUS_PATTERNS,
-} from "../constants/security.js";
-
-const access = promisify(fs.access);
+import * as v from "valibot";
+import { CommitMessageSchema } from "../schemas/validation.js";
+import { DEFAULT_LIMITS, SUSPICIOUS_PATTERNS } from "../constants/security.js";
 
 export const validateAndSanitizePath = (
   filePath: string,
   baseDir: string
 ): ValidationResult => {
   try {
+    if (!filePath.trim()) {
+      return { isValid: false, error: "File path cannot be empty" };
+    }
+
     const normalizedPath = path.normalize(filePath);
     const resolvedPath = path.resolve(baseDir, normalizedPath);
     const baseResolved = path.resolve(baseDir);
 
-    // Check for path traversal attacks
-    if (!resolvedPath.startsWith(baseResolved)) {
+    const relativePath = path.relative(baseResolved, resolvedPath);
+
+    // Prefix checks confuse sibling paths such as /repo and /repo-secret.
+    if (
+      relativePath === ".." ||
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath)
+    ) {
       return {
         isValid: false,
         error:
@@ -52,42 +58,13 @@ export const validateAndSanitizePath = (
 };
 
 export const validateCommitMessage = (message: string): ValidationResult => {
-  if (!message || typeof message !== "string") {
-    return {
-      isValid: false,
-      error: "Commit message must be a non-empty string",
-    };
-  }
-
-  const trimmed = message.trim();
-
-  if (trimmed.length === 0) {
-    return {
-      isValid: false,
-      error: "Commit message cannot be empty",
-    };
-  }
-
-  if (trimmed.length > 200) {
-    return {
-      isValid: false,
-      error: "Commit message must be 200 characters or less",
-    };
-  }
-
-  for (const pattern of SUSPICIOUS_COMMIT_PATTERNS) {
-    if (pattern.test(trimmed)) {
-      return {
+  const result = v.safeParse(CommitMessageSchema, message);
+  return result.success
+    ? { isValid: true, sanitizedValue: result.output }
+    : {
         isValid: false,
-        error: "Commit message contains potentially malicious content",
+        error: result.issues.map(issue => issue.message).join(", "),
       };
-    }
-  }
-
-  return {
-    isValid: true,
-    sanitizedValue: trimmed,
-  };
 };
 
 export const validateDiffSize = (
@@ -115,18 +92,24 @@ export const validateDiffSize = (
 };
 
 export const withTimeout = <T>(
-  promise: Promise<T>,
+  operation: Promise<T> | ((signal: AbortSignal) => Promise<T>),
   timeoutMs: number = DEFAULT_LIMITS.timeoutMs
 ): Promise<T> => {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`Operation timed out after ${timeoutMs}ms`)),
-        timeoutMs
-      )
-    ),
-  ]);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const promise =
+    typeof operation === "function" ? operation(controller.signal) : operation;
+
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort(new Error(`Operation timed out after ${timeoutMs}ms`));
+      reject(new Error(`Operation timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 };
 
 export const sanitizeError = (error: unknown): string => {
@@ -149,24 +132,27 @@ export const validateGitRepository = async (
   dir: string
 ): Promise<ValidationResult> => {
   try {
-    // Resolve the directory path to handle symlinks and relative paths
     let currentDir = path.resolve(dir);
     const rootDir = path.parse(currentDir).root;
 
-    // Traverse up the directory tree to find the .git directory
-    while (currentDir !== rootDir) {
+    while (true) {
       const gitDir = path.join(currentDir, ".git");
 
       try {
-        // Check if .git directory exists and is readable
-        await access(gitDir, fs.constants.R_OK);
+        await access(gitDir, fsConstants.R_OK);
+        const gitStats = await stat(gitDir);
+        let actualGitDir = gitDir;
 
-        // Check if HEAD file exists and is readable
-        const headFile = path.join(gitDir, "HEAD");
-        await access(headFile, fs.constants.R_OK);
+        if (gitStats.isFile()) {
+          const pointer = (await readFile(gitDir, "utf8")).trim();
+          const match = /^gitdir:\s*(.+)$/i.exec(pointer);
+          if (!match?.[1]) throw new Error("Invalid .git file");
+          actualGitDir = path.resolve(currentDir, match[1]);
+        }
 
-        // Additional check: verify it's actually a git repository by checking if HEAD contains a ref
-        const headContent = await fs.promises.readFile(headFile, "utf8");
+        const headFile = path.join(actualGitDir, "HEAD");
+        await access(headFile, fsConstants.R_OK);
+        const headContent = await readFile(headFile, "utf8");
         if (!headContent.trim()) {
           return {
             isValid: false,
@@ -176,15 +162,15 @@ export const validateGitRepository = async (
 
         return {
           isValid: true,
-          sanitizedValue: currentDir, // Return the actual git repository root
+          sanitizedValue: currentDir,
         };
       } catch {
-        // .git directory not found in current directory, try parent
-        currentDir = path.dirname(currentDir);
+        if (currentDir === rootDir) break;
       }
+
+      currentDir = path.dirname(currentDir);
     }
 
-    // No .git directory found in any parent directory
     return {
       isValid: false,
       error:
