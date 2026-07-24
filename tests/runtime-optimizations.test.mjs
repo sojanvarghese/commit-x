@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -65,22 +65,30 @@ test("compressed AI cache entries round-trip from disk", async () => {
         isRenamed: false,
       },
     ];
-    const suggestions = [
-      {
-        message: "Updated cache handling",
-        description: "x".repeat(1500),
-        confidence: 0.93,
-      },
-    ];
+    const suggestions = Array.from({ length: 3 }, (_, index) => ({
+      files: [`/repo/example-${index}.ts`],
+      message: `Updated cache handling ${index}`,
+      description: "x".repeat(500),
+      confidence: 0.93,
+    }));
     const cache = firstService.aiCache;
     const key = cache.generateKey(diffs);
 
     await cache.set(key, suggestions);
 
-    const diskEntryPath = path.join(homeDir, ".commitx", "cache", `${key}.cache`);
+    const diskEntryPath = path.join(
+      homeDir,
+      ".commit-x",
+      "cache",
+      `${key}.cache`
+    );
     const diskEntry = JSON.parse(await readFile(diskEntryPath, "utf8"));
+    const cacheDirStats = await stat(path.dirname(diskEntryPath));
+    const cacheFileStats = await stat(diskEntryPath);
 
     assert.equal(diskEntry.compressed, true);
+    assert.equal(cacheDirStats.mode & 0o777, 0o700);
+    assert.equal(cacheFileStats.mode & 0o777, 0o600);
     assert.deepEqual(await secondService.aiCache.get(key), suggestions);
   } finally {
     process.env.HOME = originalHome;
@@ -301,11 +309,51 @@ test("small repeated diff lines are preserved below collapse threshold", async (
 test("pre-grouping auto-groups lockfile + manifest and sends other changes to AI", async () => {
   const { aiCommitGroup } = await loadClasses();
   const diffs = [
-    { file: "package.json", additions: 2, deletions: 1, changes: "dep change", isNew: false, isDeleted: false, isRenamed: false },
-    { file: "yarn.lock", additions: 100, deletions: 50, changes: "lock update", isNew: false, isDeleted: false, isRenamed: false },
-    { file: "src/old-a.ts", additions: 0, deletions: 10, changes: "", isNew: false, isDeleted: true, isRenamed: false },
-    { file: "src/old-b.ts", additions: 0, deletions: 20, changes: "", isNew: false, isDeleted: true, isRenamed: false },
-    { file: "src/old-c.ts", additions: 0, deletions: 15, changes: "", isNew: false, isDeleted: true, isRenamed: false },
+    {
+      file: "package.json",
+      additions: 2,
+      deletions: 1,
+      changes: "dep change",
+      isNew: false,
+      isDeleted: false,
+      isRenamed: false,
+    },
+    {
+      file: "yarn.lock",
+      additions: 100,
+      deletions: 50,
+      changes: "lock update",
+      isNew: false,
+      isDeleted: false,
+      isRenamed: false,
+    },
+    {
+      file: "src/old-a.ts",
+      additions: 0,
+      deletions: 10,
+      changes: "",
+      isNew: false,
+      isDeleted: true,
+      isRenamed: false,
+    },
+    {
+      file: "src/old-b.ts",
+      additions: 0,
+      deletions: 20,
+      changes: "",
+      isNew: false,
+      isDeleted: true,
+      isRenamed: false,
+    },
+    {
+      file: "src/old-c.ts",
+      additions: 0,
+      deletions: 15,
+      changes: "",
+      isNew: false,
+      isDeleted: true,
+      isRenamed: false,
+    },
   ];
 
   const result = aiCommitGroup.preGroupDeterministicFiles(diffs);
@@ -342,7 +390,7 @@ test("package.json without a lockfile stays in AI path (manifest category)", asy
   assert.equal(result.aiDiffs[0].file, "package.json");
 });
 
-test("compact prompt format uses pipe-delimited headers", async () => {
+test("compact prompt format uses opaque file identifiers", async () => {
   const { aiPrompt } = await loadClasses();
   const diffs = [
     {
@@ -358,7 +406,8 @@ test("compact prompt format uses pipe-delimited headers", async () => {
 
   const { prompt } = aiPrompt.buildAggregatedPrompt(diffs);
 
-  assert.ok(prompt.includes("[1] M src/app.ts (+5/-2)"));
+  assert.ok(prompt.includes("[F1] M (+5/-2)"));
+  assert.equal(prompt.includes("src/app.ts"), false);
   assert.equal(prompt.includes('"name"'), false);
   assert.equal(prompt.includes('"status"'), false);
   assert.equal(prompt.includes('"stats"'), false);
