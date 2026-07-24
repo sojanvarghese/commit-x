@@ -44,24 +44,21 @@ test("GitDiffSchema rejects negative additions", async () => {
   assert.equal(result.issues[0].message, "Additions must be non-negative");
 });
 
-test("CommitMessageSchema accepts and trims flagged content (current behavior)", async () => {
+test("CommitMessageSchema rejects terminal control characters", async () => {
   const { CommitMessageSchema } = await loadValidation();
-  const result = v.safeParse(
-    CommitMessageSchema,
-    "  <script>alert('xss')</script>  "
-  );
-
-  assert.equal(result.success, true);
-  assert.equal(result.output, "<script>alert('xss')</script>");
-});
-
-test("CommitMessageSchema rejects unflagged message (current behavior)", async () => {
-  const { CommitMessageSchema } = await loadValidation();
-  const result = v.safeParse(CommitMessageSchema, "safe message");
+  const result = v.safeParse(CommitMessageSchema, "Updated module\u001b[31m");
 
   assert.equal(result.success, false);
   assert.equal(
     result.issues[0].message,
     "Commit message contains potentially malicious content"
   );
+});
+
+test("CommitMessageSchema accepts and trims safe content", async () => {
+  const { CommitMessageSchema } = await loadValidation();
+  const result = v.safeParse(CommitMessageSchema, "  Updated safe module  ");
+
+  assert.equal(result.success, true);
+  assert.equal(result.output, "Updated safe module");
 });
