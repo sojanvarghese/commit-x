@@ -1,4 +1,5 @@
 import type { GitStatus } from "../types/common.js";
+import type { StatusResult } from "simple-git";
 
 export interface RepoInfo {
   name: string;
@@ -12,8 +13,9 @@ interface CacheEntry<T> {
 
 export class GitCache {
   private readonly ttlMs: number;
-  private statusEntry?: CacheEntry<GitStatus>;
-  private repoInfoEntry?: CacheEntry<RepoInfo>;
+  private statusEntry: CacheEntry<GitStatus> | undefined;
+  private rawStatusEntry: CacheEntry<StatusResult> | undefined;
+  private repoInfoEntry: CacheEntry<RepoInfo> | undefined;
 
   constructor(ttlMs: number = 5000) {
     this.ttlMs = ttlMs;
@@ -32,8 +34,20 @@ export class GitCache {
     this.statusEntry = { data, timestamp: Date.now() };
   }
 
+  getRawStatus(): StatusResult | undefined {
+    return this.isFresh(this.rawStatusEntry)
+      ? this.rawStatusEntry.data
+      : undefined;
+  }
+
+  setRawStatus(data: StatusResult): void {
+    this.rawStatusEntry = { data, timestamp: Date.now() };
+  }
+
   getRepoInfo(): RepoInfo | undefined {
-    return this.isFresh(this.repoInfoEntry) ? this.repoInfoEntry.data : undefined;
+    return this.isFresh(this.repoInfoEntry)
+      ? this.repoInfoEntry.data
+      : undefined;
   }
 
   setRepoInfo(data: RepoInfo): void {
@@ -42,6 +56,7 @@ export class GitCache {
 
   clear(): void {
     this.statusEntry = undefined;
+    this.rawStatusEntry = undefined;
     this.repoInfoEntry = undefined;
   }
 }
