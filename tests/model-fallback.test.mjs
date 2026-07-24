@@ -116,3 +116,32 @@ test("VALIDATION_ERROR short-circuits the fallback chain (H1)", async () => {
     "validation errors must not trigger model fallback retries"
   );
 });
+
+test("authentication failures stop without retrying another model", async () => {
+  process.env.GEMINI_API_KEY = TEST_API_KEY;
+  const AIService = await loadAIService();
+  const service = new AIService();
+  service.aiCache = {
+    generateKey: () => "k",
+    get: async () => null,
+    set: async () => {},
+  };
+
+  let calls = 0;
+  service.genAI = {
+    models: {
+      generateContent: async () => {
+        calls += 1;
+        const error = new Error("Unauthorized API key");
+        error.status = 401;
+        throw error;
+      },
+    },
+  };
+
+  await assert.rejects(
+    service.generateAggregatedCommits(makeDiffs(), {}),
+    /unauthorized/i
+  );
+  assert.equal(calls, 1);
+});

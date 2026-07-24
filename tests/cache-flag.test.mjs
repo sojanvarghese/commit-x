@@ -73,8 +73,16 @@ test("default (no --use-cached) generates fresh results and does not read cache"
     const getCallCount = stubGenAI(service);
 
     await service.generateAggregatedCommits(makeDiffs(), {});
-    assert.equal(cacheReads, 0, "cache read should not happen without --use-cached");
-    assert.equal(cacheWrites, 0, "cache write should not happen without --use-cached");
+    assert.equal(
+      cacheReads,
+      0,
+      "cache read should not happen without --use-cached"
+    );
+    assert.equal(
+      cacheWrites,
+      0,
+      "cache write should not happen without --use-cached"
+    );
     assert.equal(getCallCount(), 1);
   } finally {
     process.env.HOME = originalHome;
@@ -103,11 +111,6 @@ test("--use-cached reads cache first and short-circuits on hit", async () => {
             message: "Cached message one",
             confidence: 0.9,
           },
-          {
-            files: ["src/other.ts"],
-            message: "Cached message two",
-            confidence: 0.85,
-          },
         ];
       },
       set: async () => {},
@@ -120,15 +123,42 @@ test("--use-cached reads cache first and short-circuits on hit", async () => {
     });
     assert.equal(cacheReads, 1);
     assert.equal(getCallCount(), 0, "AI should not be called on cache hit");
-    assert.equal(result.groups.length, 2, "cache hit must preserve all groups (C1)");
+    assert.equal(
+      result.groups.length,
+      1,
+      "cache hit must preserve full groups"
+    );
     assert.equal(result.groups[0].message, "Cached message one");
     assert.equal(result.groups[0].files[0], "src/app.ts");
-    assert.equal(result.groups[1].message, "Cached message two");
-    assert.equal(result.groups[1].files[0], "src/other.ts");
   } finally {
     process.env.HOME = originalHome;
     await rm(homeDir, { recursive: true, force: true });
   }
+});
+
+test("--use-cached rejects entries that do not exactly cover current files", async () => {
+  process.env.GEMINI_API_KEY = TEST_API_KEY;
+  const AIService = await loadAIService();
+  const service = new AIService();
+  service.aiCache = {
+    generateKey: () => "testkey",
+    get: async () => [
+      {
+        files: ["src/app.ts", "src/injected.ts"],
+        message: "Poisoned cached result",
+        confidence: 0.9,
+      },
+    ],
+    set: async () => {},
+  };
+
+  const getCallCount = stubGenAI(service);
+  const result = await service.generateAggregatedCommits(makeDiffs(), {
+    useCached: true,
+  });
+
+  assert.equal(getCallCount(), 1, "invalid cache coverage must call AI");
+  assert.equal(result.groups[0].message, "Updated app module logic");
 });
 
 test("--use-cached writes to cache when no cached result exists", async () => {
@@ -164,7 +194,10 @@ test("--use-cached writes to cache when no cached result exists", async () => {
 
     assert.equal(cacheReads, 1);
     assert.equal(cacheWrites, 1);
-    assert.ok(Array.isArray(lastWritten), "cache write payload should be an array of groups");
+    assert.ok(
+      Array.isArray(lastWritten),
+      "cache write payload should be an array of groups"
+    );
     assert.ok(
       lastWritten.length > 0 && Array.isArray(lastWritten[0].files),
       "cache writes must persist full CommitGroup shape (C1)"

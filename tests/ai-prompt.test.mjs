@@ -36,7 +36,11 @@ test("parseAggregatedResponse resolves exact file names", async () => {
 
   const response = JSON.stringify({
     groups: [
-      { files: ["src/app.ts", "src/other.ts"], message: "Updated modules", confidence: 0.9 },
+      {
+        files: ["src/app.ts", "src/other.ts"],
+        message: "Updated modules",
+        confidence: 0.9,
+      },
     ],
   });
 
@@ -48,11 +52,20 @@ test("parseAggregatedResponse resolves exact file names", async () => {
 test("parseAggregatedResponse resolves unique basenames when AI trims prefixes (H3)", async () => {
   const { parseAggregatedResponse } = await loadPrompt();
   const diffs = [diff("src/deep/app.ts"), diff("src/other.ts")];
-  const sanitizedDiffs = [sanitized("src/deep/app.ts"), sanitized("src/other.ts")];
+  const sanitizedDiffs = [
+    sanitized("src/deep/app.ts"),
+    sanitized("src/other.ts"),
+  ];
 
   // AI echoes bare basenames — must still land on originals via basename fallback.
   const response = JSON.stringify({
-    groups: [{ files: ["app.ts", "other.ts"], message: "Updated modules", confidence: 0.9 }],
+    groups: [
+      {
+        files: ["app.ts", "other.ts"],
+        message: "Updated modules",
+        confidence: 0.9,
+      },
+    ],
   });
 
   const result = parseAggregatedResponse(response, diffs, sanitizedDiffs);
@@ -66,10 +79,15 @@ test("parseAggregatedResponse resolves unique basenames when AI trims prefixes (
 test("parseAggregatedResponse does NOT use basename fallback when ambiguous (H3)", async () => {
   const { parseAggregatedResponse } = await loadPrompt();
   const diffs = [diff("src/a/index.ts"), diff("src/b/index.ts")];
-  const sanitizedDiffs = [sanitized("src/a/index.ts"), sanitized("src/b/index.ts")];
+  const sanitizedDiffs = [
+    sanitized("src/a/index.ts"),
+    sanitized("src/b/index.ts"),
+  ];
 
   const response = JSON.stringify({
-    groups: [{ files: ["index.ts"], message: "Updated index file", confidence: 0.9 }],
+    groups: [
+      { files: ["index.ts"], message: "Updated index file", confidence: 0.9 },
+    ],
   });
 
   const result = parseAggregatedResponse(response, diffs, sanitizedDiffs);
@@ -91,11 +109,20 @@ test("parseAggregatedResponse surfaces files AI dropped as unusedDiffs (no templ
     diff("src/kept.ts"),
     diff("src/new-big.ts", { isNew: true, additions: 300 }),
   ];
-  const sanitizedDiffs = [sanitized("src/kept.ts"), sanitized("src/new-big.ts")];
+  const sanitizedDiffs = [
+    sanitized("src/kept.ts"),
+    sanitized("src/new-big.ts"),
+  ];
 
   // AI only returns the small file — the new big one is dropped.
   const response = JSON.stringify({
-    groups: [{ files: ["src/kept.ts"], message: "Updated kept module", confidence: 0.9 }],
+    groups: [
+      {
+        files: ["src/kept.ts"],
+        message: "Updated kept module",
+        confidence: 0.9,
+      },
+    ],
   });
 
   const result = parseAggregatedResponse(response, diffs, sanitizedDiffs);

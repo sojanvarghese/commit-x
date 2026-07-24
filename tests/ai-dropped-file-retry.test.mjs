@@ -26,9 +26,10 @@ const makeDiffs = () => [
     file: "src/brand-new.ts",
     additions: 120,
     deletions: 0,
-    changes: Array.from({ length: 120 }, (_, i) => `+const fresh${i} = ${i};`).join(
-      "\n"
-    ),
+    changes: Array.from(
+      { length: 120 },
+      (_, i) => `+const fresh${i} = ${i};`
+    ).join("\n"),
     isNew: true,
     isDeleted: false,
     isRenamed: false,
@@ -85,18 +86,29 @@ test("new files dropped by AI trigger a focused retry (no templated fallback)", 
 
     const result = await service.generateAggregatedCommits(makeDiffs(), {});
 
-    assert.equal(callLog.length, 2, "orchestrator must retry for the dropped file");
+    assert.equal(
+      callLog.length,
+      2,
+      "orchestrator must retry for the dropped file"
+    );
     assert.ok(
-      callLog[1].includes("src/brand-new.ts"),
-      "retry prompt must target only the dropped file"
+      callLog[1].includes("fresh119"),
+      "retry prompt must include content from the dropped file"
     );
     assert.equal(
-      callLog[1].includes("src/existing.ts"),
+      callLog[1].includes("const existing"),
       false,
-      "retry must not re-send files already grouped"
+      "retry must not re-send content from files already grouped"
+    );
+    assert.equal(
+      callLog.some(prompt => prompt.includes("src/")),
+      false,
+      "AI prompts should use opaque IDs instead of repository paths"
     );
 
-    const newFileGroup = result.groups.find(g => g.files.includes("src/brand-new.ts"));
+    const newFileGroup = result.groups.find(g =>
+      g.files.includes("src/brand-new.ts")
+    );
     assert.ok(newFileGroup, "dropped new file must appear in final groups");
     assert.equal(
       newFileGroup.message,
@@ -150,8 +162,15 @@ test("factual fallback (not speculative template) applies only when retry also f
     };
 
     const result = await service.generateAggregatedCommits(makeDiffs(), {});
-    const newFileGroup = result.groups.find(g => g.files.includes("src/brand-new.ts"));
+    const newFileGroup = result.groups.find(g =>
+      g.files.includes("src/brand-new.ts")
+    );
 
+    assert.equal(
+      callCount,
+      2,
+      "main request and focused retry should each run once"
+    );
     assert.ok(newFileGroup);
     assert.equal(
       newFileGroup.message,

@@ -23,8 +23,12 @@ test("countDiffLines only counts +/- lines (ignores @@ and +++/---)", async () =
 
 test("shouldAggressivelyMinimize triggers above the 250-LOC threshold", async () => {
   const { shouldAggressivelyMinimize } = await loadMinimizer();
-  const below = { changes: Array.from({ length: 100 }, () => "+line").join("\n") };
-  const above = { changes: Array.from({ length: 260 }, () => "+line").join("\n") };
+  const below = {
+    changes: Array.from({ length: 100 }, () => "+line").join("\n"),
+  };
+  const above = {
+    changes: Array.from({ length: 260 }, () => "+line").join("\n"),
+  };
   assert.equal(shouldAggressivelyMinimize(below), false);
   assert.equal(shouldAggressivelyMinimize(above), true);
 });
@@ -102,7 +106,11 @@ test("prioritizeAdditions keeps + lines and @@ headers, drops - lines", async ()
   assert.ok(out.includes("@@ -1,5 +1,7 @@"), "hunk headers must survive");
   assert.ok(out.includes("+const fresh = 2;"), "additions must survive");
   assert.ok(out.includes("+const more = 3;"));
-  assert.equal(out.includes("const old = 1"), false, "deletions must be dropped");
+  assert.equal(
+    out.includes("const old = 1"),
+    false,
+    "deletions must be dropped"
+  );
   assert.equal(
     out.includes("removed comment"),
     false,
@@ -122,8 +130,14 @@ test("prioritizeAdditions keeps + lines and @@ headers, drops - lines", async ()
 
 test("compressDiffForPrompt prioritizes additions once aggressive threshold hit", async () => {
   const { compressDiffForPrompt } = await loadMinimizer();
-  const additionLines = Array.from({ length: 200 }, (_, i) => `+const addedVal${i} = ${i};`);
-  const deletionLines = Array.from({ length: 200 }, (_, i) => `-const removedVal${i} = ${i};`);
+  const additionLines = Array.from(
+    { length: 200 },
+    (_, i) => `+const addedVal${i} = ${i};`
+  );
+  const deletionLines = Array.from(
+    { length: 200 },
+    (_, i) => `-const removedVal${i} = ${i};`
+  );
   const diff = {
     file: "src/newfile.ts",
     additions: 200,

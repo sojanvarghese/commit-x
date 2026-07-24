@@ -18,10 +18,7 @@ const diff = (file, changes = "") => ({
 
 test("env files are blocked before reaching AI", async () => {
   const { enforcePrivacyGate } = await loadGate();
-  const result = enforcePrivacyGate(
-    [diff(".env", "API_KEY=secret")],
-    "/repo"
-  );
+  const result = enforcePrivacyGate([diff(".env", "API_KEY=secret")], "/repo");
   assert.equal(result.approvedDiffs.length, 0);
   assert.equal(result.skippedFiles.length, 1);
   assert.equal(result.skippedFiles[0].file, ".env");

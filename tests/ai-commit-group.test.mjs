@@ -53,20 +53,19 @@ test("different ecosystems are NOT mixed (H6)", async () => {
     );
   }
 
-  const groupForFile = name =>
-    autoGroups.find(g => g.files.includes(name));
-  assert.deepEqual(
-    groupForFile("package.json").files.sort(),
-    ["package.json", "yarn.lock"]
-  );
-  assert.deepEqual(
-    groupForFile("Gemfile").files.sort(),
-    ["Gemfile", "Gemfile.lock"]
-  );
-  assert.deepEqual(
-    groupForFile("Cargo.toml").files.sort(),
-    ["Cargo.lock", "Cargo.toml"]
-  );
+  const groupForFile = name => autoGroups.find(g => g.files.includes(name));
+  assert.deepEqual(groupForFile("package.json").files.sort(), [
+    "package.json",
+    "yarn.lock",
+  ]);
+  assert.deepEqual(groupForFile("Gemfile").files.sort(), [
+    "Gemfile",
+    "Gemfile.lock",
+  ]);
+  assert.deepEqual(groupForFile("Cargo.toml").files.sort(), [
+    "Cargo.lock",
+    "Cargo.toml",
+  ]);
 });
 
 test("orphaned manifest without a matching lock is left to AI", async () => {
