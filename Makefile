@@ -1,8 +1,8 @@
-.PHONY: build install clean dev test lint format help
+.PHONY: build install clean dev test lint format typecheck check help
 
 # Default target
 help:
-	@echo "Commitron - AI-Powered Git Commit Assistant"
+	@echo "Commit-X - AI-Powered Git Commit Assistant"
 	@echo "========================================="
 	@echo ""
 	@echo "Available targets:"
@@ -13,6 +13,8 @@ help:
 	@echo "  test      - Run tests"
 	@echo "  lint      - Run ESLint"
 	@echo "  format    - Format code with Prettier"
+	@echo "  typecheck - Check TypeScript without emitting"
+	@echo "  check     - Run all verification"
 	@echo "  setup     - Install dependencies and build"
 	@echo ""
 
@@ -31,7 +33,6 @@ install:
 clean:
 	@echo "🧹 Cleaning build artifacts..."
 	rm -rf dist/
-	rm -rf node_modules/
 
 # Development mode
 dev:
@@ -48,10 +49,16 @@ format:
 	@echo "✨ Formatting code..."
 	yarn format
 
+typecheck:
+	yarn typecheck
+
+check:
+	yarn check
+
 # Setup (install + build)
 setup: install build
 	@echo "✅ Setup complete!"
 	@echo ""
 	@echo "Next steps:"
 	@echo "1. Set your API key: export GEMINI_API_KEY=your_key"
-	@echo "2. Run: yarn setup to configure or yarn commit to start"
+	@echo "2. Run: yarn setup to verify or yarn commit to start"

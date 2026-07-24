@@ -1,7 +1,7 @@
 // Error messages and user-facing text constants
 export const ERROR_MESSAGES = {
   API_KEY_NOT_FOUND:
-    'Gemini API key not found. Please set GEMINI_API_KEY environment variable or configure it with "commit-x config set apiKey YOUR_API_KEY"',
+    "Gemini API key not found. Please set the GEMINI_API_KEY environment variable.",
   NO_STAGED_CHANGES:
     'No staged changes found. Please stage your changes with "git add" first.',
   NO_STAGED_CHANGES_DIFF: "No staged changes found.",

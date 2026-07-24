@@ -23,10 +23,8 @@ ${lightColors.yellow("Status and information:")}
   cx diff                        # Show changes summary
 
 ${lightColors.yellow("Configuration:")}
-  cx setup                       # Interactive setup
+  cx setup                       # Validate GEMINI_API_KEY
   cx config                      # View configuration
-  cx config set <key> <value>    # Set configuration values
-  cx config reset                # Reset configuration
   cx privacy                     # Show privacy information`);
     });
 };
