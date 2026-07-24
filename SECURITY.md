@@ -2,31 +2,46 @@
 
 ## Overview
 
-Commitron implements comprehensive security measures to protect user data and prevent common security vulnerabilities. This document outlines the security features, data handling practices, and privacy protections implemented in the application.
+Commit-X uses layered safeguards to reduce accidental disclosure and unsafe
+local Git operations. Pattern-based redaction is defense in depth, not a
+guarantee that arbitrary source code contains no sensitive information.
 
 ## Data Privacy & Protection
 
 ### Data Sent to AI Service
 
-- **File paths**: Sanitized to remove usernames and sensitive path segments
-- **Code changes**: Limited to 3000 characters per file, with sensitive content redacted
+- **File identity**: Opaque IDs in prompt metadata; Git patch path headers are
+  removed
+- **Code changes**: Limited to 3000 characters per file, with sensitive content
+  redacted
 - **File metadata**: Addition/deletion counts and file status only
-- **Total request size**: Capped at 100KB
+- **Total request size**: Diff-content budget capped near 50,000 characters;
+  hard request guard at 750,000 characters
 
-### Data NOT Sent to AI Service
+### Data NOT Included in the Prompt Payload
 
-- API keys or authentication tokens
-- Personal information (names, emails, phone numbers)
+- API keys or authentication tokens found in source content (blocked or redacted
+  when detected)
+- Detected credentials and common personal identifiers (redacted or blocked)
 - System information (OS details, hardware info)
 - Repository metadata (remote URLs, branch names)
 - Configuration data (user settings, preferences)
 
+`GEMINI_API_KEY` is necessarily transmitted to Google's API infrastructure for
+authentication; Commit-X does not include it in the model prompt or cache.
+
 ### Automatic Privacy Protections
 
-- **Sensitive file filtering**: Automatically skips `.env`, `.key`, `.pem`, `.p12`, `.pfx`, `.p8` files
-- **Directory protection**: Skips files in `secrets/`, `keys/`, `credentials/` directories
-- **Content redaction**: Automatically detects and redacts potential secrets, API keys, passwords, and tokens
-- **Path sanitization**: Removes usernames from file paths before processing
+- **Sensitive file filtering**: Automatically skips `.env`, `.key`, `.pem`,
+  `.p12`, `.pfx`, `.p8` files
+- **Directory protection**: Skips files in `secrets/`, `keys/`, `credentials/`
+  directories
+- **Content redaction**: Detects common provider tokens, private keys,
+  credentials, and personal identifiers
+- **Prompt injection defense**: System instructions identify diffs as untrusted
+  inert data; output is constrained with JSON Schema
+- **Path minimization**: Opaque file IDs replace repository paths in prompt
+  metadata
 
 ## Security Features
 
@@ -40,25 +55,25 @@ Commitron implements comprehensive security measures to protect user data and pr
 
 ### Path Traversal Protection
 
-- Path sanitization using `path.resolve()` and validation
-- Directory traversal detection with pattern matching
-- Base directory validation to ensure paths stay within repository
+- Containment validation uses `path.relative()` so sibling paths with a shared
+  prefix are rejected
+- Repository discovery supports normal repositories, subdirectories, worktrees,
+  and submodules
 - Secure file path validation in Git service
 
 ### Secure API Key Handling
 
-- Environment variables prioritized over config file storage
-- API keys never stored in configuration files
+- API keys are read only from `GEMINI_API_KEY`
+- API keys are never accepted for config-file persistence
 - API key format validation with proper error handling
 - Secure key masking in configuration display
-- Proper file permissions (0o600) for config files
 
 ### Resource Limits & Timeouts
 
 - File size limits (25MB default)
 - Diff content size limits (100KB default)
 - API request size limits (750KB default)
-- Dynamic operation timeouts (15-90 seconds based on file size and complexity)
+- Dynamic operation timeouts with Gemini request cancellation via `AbortSignal`
 - Memory management for large files
 
 ### Error Handling
@@ -84,15 +99,23 @@ const DEFAULT_LIMITS: ResourceLimits = {
 
 ### File Permissions
 
-- **Config directory**: `0o700` (owner read/write/execute only)
-- **Config file**: `0o600` (owner read/write only)
+- **AI cache directory/file**: `0o700` / `0o600`, with atomic replacement
+
+### Optional AI cache
+
+Caching is disabled unless `--use-cached` is supplied. Cached data contains
+generated commit groups and local file paths, but not raw diff text. Cache keys
+include a hash of the repository path, exact diffs, model, and prompt version.
+Entries expire after seven days, are schema-validated, and must cover the
+current file set exactly.
 
 ### Input Validation Rules
 
 - **File paths**: Must be within repository directory
 - **API keys**: 10-200 characters, alphanumeric with hyphens/underscores
-- **Commit messages**: 1-200 characters, no malicious patterns
-- **Configuration values**: Type-specific validation with sanitization
+- **Commit messages**: 1-200 characters with terminal control characters
+  rejected
+- **Configuration values**: Authentication is environment-only
 
 ## Privacy Command
 
@@ -145,17 +168,5 @@ If you discover a security vulnerability, please:
 3. **Include** detailed reproduction steps
 4. **Wait** for confirmation before public disclosure
 
-## Compliance
-
-This security implementation helps ensure compliance with:
-
-- Data privacy regulations
-- Security best practices
-- Enterprise security requirements
-- Open source security standards
-
----
-
-**Last Updated**: September 2025
-**Version**: 1.0.2
-**Status**: ✅ Security features implemented and tested
+**Last Updated**: July 2026 **Version**: 4.1.0 **Status**: ✅ Security features
+implemented and tested
