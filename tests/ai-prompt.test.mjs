@@ -180,3 +180,40 @@ test("generateFactualFallback stays factual about status without speculating on 
     "Updated changed.ts"
   );
 });
+
+const parseSingleMessage = async message => {
+  const { parseAggregatedResponse } = await loadPrompt();
+  const result = parseAggregatedResponse(
+    JSON.stringify({
+      groups: [{ files: ["src/app.ts"], message, confidence: 0.9 }],
+    }),
+    [diff("src/app.ts")],
+    [sanitized("src/app.ts")]
+  );
+  return result.groups[0].message;
+};
+
+test("a plain conventional-commit prefix is stripped instead of discarding the message", async () => {
+  assert.equal(
+    await parseSingleMessage("feat: added retry logic to the uploader"),
+    "Added retry logic to the uploader"
+  );
+});
+
+test("a scoped conventional-commit prefix is stripped", async () => {
+  assert.equal(
+    await parseSingleMessage("fix(api): handled empty upstream responses"),
+    "Handled empty upstream responses"
+  );
+});
+
+test("a prefix with nothing meaningful after it falls back to a factual message", async () => {
+  assert.equal(await parseSingleMessage("chore: tidy"), "Updated app.ts");
+});
+
+test("a colon that is not a conventional-commit type is left alone", async () => {
+  assert.equal(
+    await parseSingleMessage("Updated parser: handled nested quotes"),
+    "Updated parser: handled nested quotes"
+  );
+});
