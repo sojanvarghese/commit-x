@@ -1,7 +1,3 @@
-export interface CommitConfig {
-  apiKey?: string;
-}
-
 export interface GitDiff {
   file: string;
   additions: number;
@@ -13,26 +9,8 @@ export interface GitDiff {
   oldPath?: string;
 }
 
-export interface CommitSuggestion {
-  message: string;
-  description?: string;
-  type?: string;
-  scope?: string;
-  confidence: number;
-}
-
-export interface GitStatus {
-  staged: string[];
-  unstaged: string[];
-  untracked: string[];
-  total: number;
-}
-
 export interface CommitOptions {
-  message?: string;
   dryRun?: boolean;
-  interactive?: boolean;
-  all?: boolean; // Stage all files and commit together (traditional workflow)
   useCached?: boolean; // Reuse persisted AI results across runs (default: false)
 }
 
