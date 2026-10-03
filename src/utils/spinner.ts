@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { lightColors } from "./colors.js";
 
 export interface SpinnerOptions {
@@ -165,7 +166,7 @@ export class LightSpinner {
 
     this.clear();
     this.stream.write(line);
-    this.lastLength = this.stripAnsi(line).length;
+    this.lastLength = stripVTControlCharacters(line).length;
 
     this.currentFrame = (this.currentFrame + 1) % this.frames.length;
   }
@@ -174,11 +175,6 @@ export class LightSpinner {
     if (this.lastLength > 0) {
       this.stream.write(`\r${" ".repeat(this.lastLength)}\r`);
     }
-  }
-
-  private stripAnsi(text: string): string {
-    // eslint-disable-next-line no-control-regex
-    return text.replace(/\x1b\[[0-9;]*m/g, "");
   }
 }
 
