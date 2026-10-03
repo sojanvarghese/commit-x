@@ -1,6 +1,4 @@
 [![License](https://badgen.net/badge/license/MIT/blue)](https://opensource.org/licenses/MIT)
-[![NPM Version](https://badgen.net/npm/v/@sojanvarghese/commit-x)](https://www.npmjs.com/package/@sojanvarghese/commit-x)
-[![NPM Downloads](https://badgen.net/npm/dw/@sojanvarghese/commit-x)](https://www.npmjs.com/package/@sojanvarghese/commit-x)
 [![Node.js](https://badgen.net/badge/node/24.0.0+/green)](https://nodejs.org/)
 [![TypeScript](https://badgen.net/badge/TypeScript/6.0.3/blue)](https://www.typescriptlang.org/)
 [![Yarn](https://badgen.net/badge/yarn/4.13.0+/blue)](https://yarnpkg.com/)
@@ -43,45 +41,30 @@
 
 ### Installation
 
-```bash
-# Install globally from npm
-npm install -g @sojanvarghese/commit-x
-```
-
-### Upgrading
-
-If you already installed the CLI globally with npm, pull the latest published
-version:
+This is a personal tool, built from this checkout and linked onto the `PATH`:
 
 ```bash
-npm install -g @sojanvarghese/commit-x@latest
+yarn install
+yarn build
+npm link
 ```
 
-Check the installed version:
-
-```bash
-cx --version
-```
+`cx` then runs `dist/cli.js` from this directory, so a rebuild takes effect
+immediately.
 
 ### Setup
 
 ```bash
-# Set the API key in your shell, then verify setup
 export GEMINI_API_KEY="your_api_key_here"
-cx setup
 ```
 
 ### Usage
 
 ```bash
-# Default: AI groups unstaged changes into multiple commits (recommended)
+# AI groups unstaged changes into multiple commits
 cx
 
-# Traditional workflow: stage everything (prompted), then one commit
-# (AI suggests a single message from the staged diff unless you use -m)
-cx commit --all
-
-# Preview multi-commit AI plan without committing
+# Preview the AI commit plan without committing
 cx commit --dry-run
 
 # Reuse cached AI grouping from a previous run (default is always fresh)
@@ -90,35 +73,16 @@ cx commit --use-cached
 
 ## 📖 Commands
 
-| Command                         | Description                                                              |
-| ------------------------------- | ------------------------------------------------------------------------ |
-| `cx`                            | AI groups **unstaged** changes into multiple logical commits             |
-| `cx commit --all`               | Traditional workflow: stage all (with confirmation), then **one** commit |
-| `cx commit --dry-run`           | Show the AI commit plan without running `git commit`                     |
-| `cx commit --use-cached`        | Reuse on-disk cached AI results (off by default)                         |
-| `cx commit -m "message"`        | Traditional workflow with your message (skips AI message)                |
-| `cx commit --all --interactive` | Traditional workflow with interactive message selection                  |
-| `cx status`                     | Show repository status                                                   |
-| `cx diff`                       | Show unstaged changes summary                                            |
-| `cx config`                     | View configuration                                                       |
-| `cx config get [key]`           | Show environment-based configuration; **never prints a raw API key**     |
-| `cx setup`                      | Validate environment-based authentication                                |
-| `cx privacy`                    | Show privacy settings and data handling information                      |
-| `cx debug`                      | Debug repository detection                                               |
-| `cx help-examples`              | Show usage examples                                                      |
+| Command                  | Description                                                  |
+| ------------------------ | ------------------------------------------------------------ |
+| `cx`                     | AI groups **unstaged** changes into multiple logical commits |
+| `cx commit --dry-run`    | Show the AI commit plan without running `git commit`         |
+| `cx commit --use-cached` | Reuse on-disk cached AI results (off by default)             |
 
 ## ⚙️ Configuration
 
-```bash
-# View current configuration
-cx config
-```
-
-### Configuration options
-
 Use the **`GEMINI_API_KEY`** environment variable for Gemini authentication.
-Commit-X does not persist API keys. **`cx config get`** never prints the key in
-plain text; it reports only whether one is set.
+Commit-X does not persist API keys.
 
 The model chain is chosen in code: `gemini-3.5-flash-lite` first for low latency
 and cost, then `gemini-3.6-flash` if the primary model fails. Requests use JSON
