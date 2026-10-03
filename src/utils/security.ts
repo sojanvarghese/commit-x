@@ -102,8 +102,10 @@ export const withTimeout = <T>(
 
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      controller.abort(new Error(`Operation timed out after ${timeoutMs}ms`));
-      reject(new Error(`Operation timed out after ${timeoutMs}ms`));
+      const error = new Error(`Operation timed out after ${timeoutMs}ms`);
+      error.name = "TimeoutError";
+      controller.abort(error);
+      reject(error);
     }, timeoutMs);
   });
 
