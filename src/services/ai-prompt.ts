@@ -3,19 +3,16 @@ import type {
   CommitGroup,
   GitDiff,
 } from "../types/common.js";
+import path from "node:path";
 import type { SanitizedDiff } from "../utils/data-sanitization.js";
 import { DEFAULT_LIMITS } from "../constants/security.js";
-import { UI_CONSTANTS, COMMIT_MESSAGE_PATTERNS } from "../constants/ui.js";
+import { UI_CONSTANTS } from "../constants/ui.js";
 import { lightColors } from "../utils/colors.js";
 import { compressDiffForPrompt } from "../utils/diff-minimizer.js";
 import { validateCommitMessage } from "../utils/security.js";
 
 export interface BuiltPrompt {
   prompt: string;
-}
-
-export interface PromptOptions {
-  singleGroup?: boolean;
 }
 
 export const AI_PROMPT_VERSION = "4";
@@ -26,6 +23,27 @@ export const AI_SYSTEM_INSTRUCTION = [
 ].join(" ");
 
 const TOTAL_CONTENT_BUDGET_CAP = 50_000;
+
+const CONVENTIONAL_TYPES = [
+  "feat",
+  "fix",
+  "chore",
+  "docs",
+  "refactor",
+  "style",
+  "test",
+  "perf",
+  "build",
+  "ci",
+  "revert",
+] as const;
+
+// `type:` for the known types, or `anything(scope):` for any word.
+const CONVENTIONAL_PREFIX = new RegExp(
+  `^(?:(?:${CONVENTIONAL_TYPES.join("|")})|[a-z]+\\([^)]*\\))!?:\\s*`,
+  "i"
+);
+const MIN_SUBJECT_LENGTH = 10;
 
 const formatStatus = (diff: SanitizedDiff): string => {
   if (diff.isNew) return "A";
@@ -50,8 +68,7 @@ const renderFileEntry = (
 };
 
 export const buildAggregatedPrompt = (
-  sanitizedDiffs: SanitizedDiff[],
-  options: PromptOptions = {}
+  sanitizedDiffs: SanitizedDiff[]
 ): BuiltPrompt => {
   const totalContentBudget = Math.min(
     DEFAULT_LIMITS.maxApiRequestSize / 2,
@@ -70,17 +87,13 @@ export const buildAggregatedPrompt = (
   );
 
   const prompt = [
-    options.singleGroup
-      ? "Task: Write one commit subject covering every file ID below."
-      : "Task: Group the file IDs below into logical git commits.",
+    "Task: Group the file IDs below into logical git commits.",
     'Output JSON: {"groups":[{"files":["F1"],"message":"<subject>","confidence":<0..1>}]}',
     "Rules:",
     "- EVERY file ID MUST appear exactly once. Never invent an ID.",
-    options.singleGroup
-      ? "- Return exactly one group containing every file ID."
-      : "- Use 1 to 7 file IDs per group. Split unrelated changes.",
+    "- Use 1 to 7 file IDs per group. Split unrelated changes.",
     "- message: 3-20 words describing what the diff actually does based on the + lines shown. Capitalized past-tense verb first (e.g. Added, Fixed, Updated, Refactored). No trailing period. No speculation — describe the concrete change.",
-    "- FORBIDDEN prefixes: feat:, fix:, chore:, docs:, refactor:, style:, test:, perf:, build:, ci:, revert:. No type(scope): syntax.",
+    `- FORBIDDEN prefixes: ${CONVENTIONAL_TYPES.map(type => `${type}:`).join(", ")}. No type(scope): syntax.`,
     "- confidence: 0.5 (unsure) to 0.95 (clear intent).",
     "- Diff lines starting with + are the new state of the file. For large diffs you will only see + lines and hunk headers (deletions stripped to save tokens). Base your message on what those additions accomplish.",
     "<untrusted-diffs>",
@@ -92,8 +105,7 @@ export const buildAggregatedPrompt = (
 };
 
 export const createAggregatedResponseSchema = (
-  fileCount: number,
-  singleGroup: boolean = false
+  fileCount: number
 ): Record<string, unknown> => {
   const fileIds = Array.from(
     { length: fileCount },
@@ -107,7 +119,7 @@ export const createAggregatedResponseSchema = (
       groups: {
         type: "array",
         minItems: 1,
-        maxItems: singleGroup ? 1 : fileCount,
+        maxItems: fileCount,
         items: {
           type: "object",
           additionalProperties: false,
@@ -117,7 +129,7 @@ export const createAggregatedResponseSchema = (
             files: {
               type: "array",
               minItems: 1,
-              maxItems: singleGroup ? fileCount : Math.min(7, fileCount),
+              maxItems: Math.min(7, fileCount),
               items: { type: "string", enum: fileIds },
             },
             message: {
@@ -141,11 +153,6 @@ interface PathResolver {
   resolve(candidate: string): string | undefined;
 }
 
-const basename = (filePath: string): string => {
-  const parts = filePath.split(/[\\/]/);
-  return parts[parts.length - 1] ?? filePath;
-};
-
 // Lenient resolver: exact match wins; falls back to unique basename lookup so
 // models that trim a leading `./`, normalize slashes, or emit the bare filename
 // still land on the right file.
@@ -158,7 +165,7 @@ const createPathResolver = (
 
   const record = (candidate: string, original: string): void => {
     if (!exact.has(candidate)) exact.set(candidate, original);
-    const baseKey = basename(candidate);
+    const baseKey = path.basename(candidate);
     const existing = basenameHits.get(baseKey);
     if (existing) {
       if (!existing.includes(original)) existing.push(original);
@@ -181,7 +188,7 @@ const createPathResolver = (
     resolve: (candidate: string): string | undefined => {
       const direct = exact.get(candidate);
       if (direct) return direct;
-      const byBase = basenameHits.get(basename(candidate));
+      const byBase = basenameHits.get(path.basename(candidate));
       return byBase?.length === 1 ? byBase[0] : undefined;
     },
   };
@@ -192,57 +199,11 @@ const createPathResolver = (
 // speculation about what the change does, because by definition we have no AI
 // analysis of the diff at this point.
 export const generateFactualFallback = (diff: GitDiff): string => {
-  const fileName = diff.file.split("/").pop() ?? diff.file;
+  const fileName = path.basename(diff.file);
   if (diff.isNew) return `Added ${fileName}`;
   if (diff.isDeleted) return `Removed ${fileName}`;
   if (diff.isRenamed) return `Renamed ${fileName}`;
   return `Updated ${fileName}`;
-};
-
-interface FormatValidation {
-  isValid: boolean;
-  correctedMessage?: string;
-}
-
-const validateCommitMessageFormat = (message: string): FormatValidation => {
-  if (!message || typeof message !== "string") return { isValid: false };
-
-  const trimmed = message.trim();
-  const hasBannedPrefix = COMMIT_MESSAGE_PATTERNS.AVOID_PREFIXES.some(prefix =>
-    trimmed.toLowerCase().startsWith(prefix.toLowerCase())
-  );
-
-  if (hasBannedPrefix) {
-    console.log(
-      lightColors.yellow(
-        `⚠️  Detected conventional commit prefix in: "${trimmed}"`
-      )
-    );
-    return { isValid: false };
-  }
-
-  const hasConventionalPattern =
-    COMMIT_MESSAGE_PATTERNS.CONVENTIONAL_COMMIT_PATTERNS.some(pattern =>
-      pattern.test(trimmed)
-    );
-
-  if (hasConventionalPattern) {
-    console.log(
-      lightColors.yellow(
-        `⚠️  Detected conventional commit format in: "${trimmed}"`
-      )
-    );
-    const corrected = trimmed.replace(/^[a-z]+(\([^)]*\))?:\s*/i, "");
-    if (corrected && corrected.length > 10) {
-      const correctedMessage =
-        corrected.charAt(0).toUpperCase() + corrected.slice(1);
-      console.log(lightColors.blue(`  ✓ Corrected to: "${correctedMessage}"`));
-      return { isValid: true, correctedMessage };
-    }
-    return { isValid: false };
-  }
-
-  return { isValid: true };
 };
 
 const resolveFinalMessage = (
@@ -251,30 +212,30 @@ const resolveFinalMessage = (
   diffs: GitDiff[]
 ): string => {
   const trimmed = rawMessage.trim();
-  const securityValidation = validateCommitMessage(trimmed);
-  if (!securityValidation.isValid || !securityValidation.sanitizedValue) {
+  const fallback = (): string => {
     const firstDiff = diffs.find(d => d.file === firstValidFile);
     return firstDiff ? generateFactualFallback(firstDiff) : "Updated files";
-  }
-  const validation = validateCommitMessageFormat(trimmed);
+  };
 
-  if (validation.correctedMessage) return validation.correctedMessage;
+  if (!validateCommitMessage(trimmed).isValid) return fallback();
 
-  if (!validation.isValid) {
+  const subject = trimmed.replace(CONVENTIONAL_PREFIX, "");
+  if (subject === trimmed) return trimmed;
+
+  if (subject.length <= MIN_SUBJECT_LENGTH) {
     console.log(
       lightColors.red(
         `❌ Rejecting invalid commit message format: "${trimmed}"`
       )
     );
-    const firstDiff = diffs.find(d => d.file === firstValidFile);
-    const fallback = firstDiff
-      ? generateFactualFallback(firstDiff)
-      : "Updated files";
-    console.log(lightColors.blue(`  ✓ Using fallback message: "${fallback}"`));
-    return fallback;
+    const fallbackMessage = fallback();
+    console.log(
+      lightColors.blue(`  ✓ Using fallback message: "${fallbackMessage}"`)
+    );
+    return fallbackMessage;
   }
 
-  return trimmed;
+  return subject.charAt(0).toUpperCase() + subject.slice(1);
 };
 
 interface RawGroup {
