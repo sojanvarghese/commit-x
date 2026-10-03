@@ -296,9 +296,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@google/genai@npm:2.13.0":
-  version: 2.13.0
-  resolution: "@google/genai@npm:2.13.0"
+"@google/genai@npm:2.26.0":
+  version: 2.26.0
+  resolution: "@google/genai@npm:2.26.0"
   dependencies:
     google-auth-library: "npm:^10.3.0"
     p-retry: "npm:^4.6.2"
@@ -309,7 +309,7 @@ __metadata:
   peerDependenciesMeta:
     "@modelcontextprotocol/sdk":
       optional: true
-  checksum: 10c0/155259d4d05fc4e4ce54ba95385f78497b4e033e118277384fd3ab666df1cbee229ae2c19fb32a7016cca9df4c86fcf20bf0e9ebb00f9795f15cb39e12c198a2
+  checksum: 10c0/973737742a2e5d14b2e76767d581e9da020a4037e76f79789f2f8d7b81e7dcd9e276f69dedbd48fdcd979772b5db0754bee94134337b138d103343e3c3f80498
   languageName: node
   linkType: hard
 
@@ -726,7 +726,7 @@ __metadata:
   resolution: "@sojanvarghese/commit-x@workspace:."
   dependencies:
     "@eslint/js": "npm:10.0.1"
-    "@google/genai": "npm:2.13.0"
+    "@google/genai": "npm:2.26.0"
     "@types/node": "npm:24.13.3"
     "@typescript-eslint/eslint-plugin": "npm:8.71.0"
     "@typescript-eslint/parser": "npm:8.71.0"

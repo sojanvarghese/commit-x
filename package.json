@@ -67,7 +67,7 @@
     "uninstall": "npm uninstall -g @sojanvarghese/commit-x"
   },
   "dependencies": {
-    "@google/genai": "2.13.0",
+    "@google/genai": "2.26.0",
     "commander": "15.0.0",
     "simple-git": "4.0.2",
     "valibot": "1.5.0"
