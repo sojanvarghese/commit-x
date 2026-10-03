@@ -1,25 +1,3 @@
-export class InFlightRequestDeduplicator {
-  private readonly pendingRequests = new Map<string, Promise<unknown>>();
-
-  async run<T>(key: string, requestFn: () => Promise<T>): Promise<T> {
-    const existing = this.pendingRequests.get(key);
-    if (existing) {
-      return existing as Promise<T>;
-    }
-
-    const promise = (async (): Promise<T> => {
-      try {
-        return await requestFn();
-      } finally {
-        this.pendingRequests.delete(key);
-      }
-    })();
-
-    this.pendingRequests.set(key, promise);
-    return promise;
-  }
-}
-
 export interface ChunkOptions<T> {
   maxItems: number;
   maxBudget: number;
