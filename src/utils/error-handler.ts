@@ -1,10 +1,8 @@
 import { lightColors } from "./colors.js";
 import { sanitizeError } from "./security.js";
 import {
-  ERROR_LOG_LIMIT,
   DEFAULT_RETRY_ATTEMPTS,
   DEFAULT_RETRY_DELAY_MS,
-  ERROR_PATTERNS,
 } from "../constants/error-handler.js";
 import { ErrorType, type ErrorContext } from "../types/error-handler.js";
 
@@ -48,7 +46,7 @@ export class SecureError extends Error {
       case ErrorType.AI_SERVICE_ERROR:
         return "AI service failed. Please check your API key and try again.";
       case ErrorType.CONFIG_ERROR:
-        return "Configuration error. Please run setup again or check your configuration.";
+        return "Configuration error. Please check your environment and try again.";
       case ErrorType.TIMEOUT_ERROR:
         return "Operation timed out. Please try again with a smaller file or check your connection.";
       case ErrorType.UNKNOWN_ERROR:
@@ -59,216 +57,132 @@ export class SecureError extends Error {
   }
 }
 
-export class ErrorHandler {
-  private static instance: ErrorHandler;
-  private readonly errorLog: Array<{ error: SecureError; timestamp: Date }> =
-    [];
-
-  private constructor() {
-    // Private constructor for singleton pattern
+const typeFromHttpStatus = (status: unknown): ErrorType | undefined => {
+  switch (status) {
+    case 400:
+      return ErrorType.VALIDATION_ERROR;
+    case 401:
+    case 403:
+      return ErrorType.CONFIG_ERROR;
+    case 408:
+      return ErrorType.TIMEOUT_ERROR;
+    case 429:
+    case 500:
+    case 502:
+    case 503:
+    case 504:
+      return ErrorType.NETWORK_ERROR;
+    default:
+      return undefined;
   }
+};
 
-  public static getInstance(): ErrorHandler {
-    if (!ErrorHandler.instance) {
-      ErrorHandler.instance = new ErrorHandler();
-    }
-    return ErrorHandler.instance;
+const typeFromErrorCode = (code: unknown): ErrorType | undefined => {
+  switch (code) {
+    case "ENOENT":
+    case "EACCES":
+    case "EPERM":
+    case "ENOTDIR":
+    case "EISDIR":
+      return ErrorType.FILE_SYSTEM_ERROR;
+    case "ECONNREFUSED":
+    case "ENOTFOUND":
+    case "ETIMEDOUT":
+      return ErrorType.NETWORK_ERROR;
+    default:
+      return undefined;
   }
+};
 
-  public handleError = (
-    error: unknown,
-    context: ErrorContext = {}
-  ): SecureError => {
-    let secureError: SecureError;
+const isRecoverableType = (type: ErrorType): boolean =>
+  type !== ErrorType.SECURITY_ERROR && type !== ErrorType.UNKNOWN_ERROR;
 
-    if (error instanceof SecureError) {
-      secureError = error;
-    } else {
-      secureError = this.createSecureError(error, context);
-    }
+// Classifies a foreign error from what it carries (HTTP status, errno code,
+// error name). Anything unrecognised takes `fallbackType`, which the caller
+// sets from where the failure happened.
+export const toSecureError = (
+  error: unknown,
+  context: ErrorContext = {},
+  fallbackType: ErrorType = ErrorType.UNKNOWN_ERROR
+): SecureError => {
+  if (error instanceof SecureError) return error;
 
-    this.logError(secureError);
-    this.displayError(secureError);
-
-    return secureError;
+  const details = (error ?? {}) as {
+    message?: unknown;
+    name?: unknown;
+    code?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
   };
+  const type =
+    typeFromHttpStatus(details.status ?? details.statusCode ?? details.code) ??
+    typeFromErrorCode(details.code) ??
+    (details.name === "TimeoutError" ? ErrorType.TIMEOUT_ERROR : fallbackType);
+  const message =
+    typeof details.message === "string"
+      ? details.message
+      : "Unknown error occurred";
 
-  private readonly createSecureError = (
-    error: unknown,
-    context: ErrorContext
-  ): SecureError => {
-    const message = (error as Error)?.message ?? "Unknown error occurred";
-    const sanitizedMessage = sanitizeError(message);
+  return new SecureError(message, type, context, isRecoverableType(type));
+};
 
-    const errorDetails = error as {
-      code?: string | number;
-      status?: number;
-      statusCode?: number;
-    };
-    const errorCode = errorDetails.code;
-    const httpStatus =
-      errorDetails.status ??
-      errorDetails.statusCode ??
-      (typeof errorCode === "number" ? errorCode : undefined);
-    let errorType: ErrorType;
-    switch (httpStatus) {
-      case 400:
-        errorType = ErrorType.VALIDATION_ERROR;
-        break;
-      case 401:
-      case 403:
-        errorType = ErrorType.CONFIG_ERROR;
-        break;
-      case 408:
-        errorType = ErrorType.TIMEOUT_ERROR;
-        break;
-      case 429:
-      case 500:
-      case 502:
-      case 503:
-      case 504:
-        errorType = ErrorType.NETWORK_ERROR;
-        break;
-      default:
-        errorType = ErrorType.UNKNOWN_ERROR;
-    }
+const getErrorColor = (type: ErrorType): ((text: string) => string) => {
+  switch (type) {
+    case ErrorType.SECURITY_ERROR:
+    case ErrorType.UNKNOWN_ERROR:
+      return lightColors.red;
+    case ErrorType.VALIDATION_ERROR:
+    case ErrorType.CONFIG_ERROR:
+      return lightColors.yellow;
+    case ErrorType.NETWORK_ERROR:
+    case ErrorType.TIMEOUT_ERROR:
+    case ErrorType.AI_SERVICE_ERROR:
+      return lightColors.blue;
+    case ErrorType.FILE_SYSTEM_ERROR:
+      return lightColors.cyan;
+    case ErrorType.GIT_ERROR:
+      return lightColors.green;
+    default:
+      return assertNever(type);
+  }
+};
 
-    if (errorType === ErrorType.UNKNOWN_ERROR) {
-      switch (errorCode) {
-        case "ENOENT":
-        case "EACCES":
-        case "EPERM":
-        case "ENOTDIR":
-        case "EISDIR":
-          errorType = ErrorType.FILE_SYSTEM_ERROR;
-          break;
-        case "ECONNREFUSED":
-        case "ENOTFOUND":
-        case "ETIMEDOUT":
-          errorType = ErrorType.NETWORK_ERROR;
-          break;
-        default:
-          errorType = this.detectErrorTypeFromMessage(message);
-          break;
-      }
-    }
-
-    const isRecoverable = this.isRecoverableError(errorType);
-
-    return new SecureError(sanitizedMessage, errorType, context, isRecoverable);
-  };
-
-  private readonly detectErrorTypeFromMessage = (
-    message: string
-  ): ErrorType => {
-    const lowerMsg = message.toLowerCase();
-
-    for (const { type, patterns } of ERROR_PATTERNS) {
-      if (patterns.some(pattern => lowerMsg.includes(pattern))) {
-        return type;
-      }
-    }
-
-    return ErrorType.UNKNOWN_ERROR;
-  };
-
-  private readonly logError = (error: SecureError): void => {
-    this.errorLog.push({ error, timestamp: new Date() });
-
-    if (this.errorLog.length > ERROR_LOG_LIMIT) {
-      this.errorLog.shift();
-    }
-
-    // Development mode removed - error details logging disabled
-  };
-
-  private readonly displayError = (error: SecureError): void => {
-    const color = this.getErrorColor(error.type);
-    console.error(color(`❌ ${error.userMessage}`));
-
-    if (error.context.operation) {
-      console.error(
-        lightColors.gray(`   Operation: ${error.context.operation}`)
-      );
-    }
-
-    if (error.context.file) {
-      console.error(lightColors.gray(`   File: ${error.context.file}`));
-    }
-
-    if (error.isRecoverable) {
-      console.error(
-        lightColors.yellow(
-          "   💡 This error might be recoverable. Please try again."
-        )
-      );
-    }
-  };
-
-  private readonly getErrorColor = (
-    type: ErrorType
-  ): ((text: string) => string) => {
-    switch (type) {
-      case ErrorType.SECURITY_ERROR:
-      case ErrorType.UNKNOWN_ERROR:
-        return lightColors.red;
-      case ErrorType.VALIDATION_ERROR:
-      case ErrorType.CONFIG_ERROR:
-        return lightColors.yellow;
-      case ErrorType.NETWORK_ERROR:
-      case ErrorType.TIMEOUT_ERROR:
-      case ErrorType.AI_SERVICE_ERROR:
-        return lightColors.blue;
-      case ErrorType.FILE_SYSTEM_ERROR:
-        return lightColors.cyan;
-      case ErrorType.GIT_ERROR:
-        return lightColors.green;
-      default:
-        return assertNever(type);
-    }
-  };
-
-  private readonly isRecoverableError = (type: ErrorType): boolean => {
-    switch (type) {
-      case ErrorType.FILE_SYSTEM_ERROR:
-      case ErrorType.NETWORK_ERROR:
-      case ErrorType.TIMEOUT_ERROR:
-      case ErrorType.VALIDATION_ERROR:
-      case ErrorType.GIT_ERROR:
-      case ErrorType.AI_SERVICE_ERROR:
-      case ErrorType.CONFIG_ERROR:
-        return true;
-      case ErrorType.SECURITY_ERROR:
-      case ErrorType.UNKNOWN_ERROR:
-        return false;
-      default:
-        return assertNever(type);
-    }
-  };
-}
-
-export const withErrorHandling = <T>(
-  operation: () => T | Promise<T>,
+// The single place a failure is shown to the user. Everything below the CLI
+// only classifies and rethrows.
+export const reportError = (
+  error: unknown,
   context: ErrorContext = {}
-): T | Promise<T> => {
-  const errorHandler = ErrorHandler.getInstance();
+): void => {
+  const secureError = toSecureError(error, context);
+  const { operation, file } = secureError.context;
 
+  const lines = [
+    getErrorColor(secureError.type)(`❌ ${secureError.message}`),
+    lightColors.gray(`   ${secureError.userMessage}`),
+  ];
+  if (operation) lines.push(lightColors.gray(`   Operation: ${operation}`));
+  if (file) lines.push(lightColors.gray(`   File: ${file}`));
+  if (secureError.isRecoverable) {
+    lines.push(
+      lightColors.yellow(
+        "   💡 This error might be recoverable. Please try again."
+      )
+    );
+  }
+
+  console.error(lines.join("\n"));
+  process.exitCode = 1;
+};
+
+export const withErrorHandling = async <T>(
+  operation: () => T | Promise<T>,
+  context: ErrorContext = {},
+  fallbackType?: ErrorType
+): Promise<T> => {
   try {
-    const result = operation();
-
-    if (result instanceof Promise) {
-      return result.catch(error => {
-        const secureError = errorHandler.handleError(error, context);
-
-        throw secureError;
-      });
-    }
-
-    return result;
+    return await operation();
   } catch (error) {
-    const secureError = errorHandler.handleError(error, context);
-
-    throw secureError;
+    throw toSecureError(error, context, fallbackType);
   }
 };
 
@@ -278,21 +192,13 @@ export const withRetry = async <T>(
   baseDelay: number = DEFAULT_RETRY_DELAY_MS,
   context: ErrorContext = {}
 ): Promise<T> => {
-  const errorHandler = ErrorHandler.getInstance();
   let lastError: SecureError | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await operation();
     } catch (error) {
-      lastError =
-        error instanceof SecureError
-          ? error
-          : errorHandler.handleError(error, {
-              ...context,
-              attempt,
-              maxRetries,
-            });
+      lastError = toSecureError(error, { ...context, attempt, maxRetries });
 
       const retryableType =
         lastError.type === ErrorType.NETWORK_ERROR ||
