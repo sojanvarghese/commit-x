@@ -8,12 +8,8 @@
   "description": "AI-powered Git commit assistant that intelligently analyzes your code changes and generates clear, concise, and context-aware commit messages",
   "type": "module",
   "main": "dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+    ".": "./dist/index.js"
   },
   "sideEffects": false,
   "bin": {
@@ -43,7 +39,7 @@
     "package.json"
   ],
   "scripts": {
-    "build": "yarn typecheck && tsup && tsc --emitDeclarationOnly --outDir dist",
+    "build": "yarn typecheck && tsup",
     "build:watch": "tsup --watch",
     "dev": "yarn build && node --enable-source-maps dist/cli.js",
     "cx": "node dist/cli.js",
@@ -57,14 +53,7 @@
     "clean": "rm -rf dist",
     "prepack": "yarn build",
     "commit": "yarn cx commit",
-    "commit:dry": "yarn cx commit --dry-run",
-    "commit:all": "yarn cx commit --all",
-    "status": "yarn cx status",
-    "diff": "yarn cx diff",
-    "config:get": "yarn cx config get",
-    "setup": "yarn cx setup",
-    "help": "yarn cx help-examples",
-    "uninstall": "npm uninstall -g @sojanvarghese/commit-x"
+    "commit:dry": "yarn cx commit --dry-run"
   },
   "dependencies": {
     "@google/genai": "2.26.0",
