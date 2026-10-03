@@ -32,18 +32,19 @@ const createGitStatus = files => ({
   current: "main",
 });
 
-const createGitServiceForSummaryTests = async files => {
+const createGitServiceForDiffTests = async files => {
   const { GitService } = await loadClasses();
   const service = new GitService();
   const status = createGitStatus(files);
 
   service.repositoryPath = "/repo";
-  service.validateFilePaths = input => input;
 
   return { service, status };
 };
 
-test("compressed AI cache entries round-trip from disk", async () => {
+const inRepo = files => files.map(file => `/repo/${file}`);
+
+test("AI cache entries round-trip from disk with owner-only permissions", async () => {
   const { AIService } = await loadClasses();
   const originalHome = process.env.HOME;
   const homeDir = await mkdtemp(path.join(os.tmpdir(), "commitx-home-"));
@@ -86,7 +87,7 @@ test("compressed AI cache entries round-trip from disk", async () => {
     const cacheDirStats = await stat(path.dirname(diskEntryPath));
     const cacheFileStats = await stat(diskEntryPath);
 
-    assert.equal(diskEntry.compressed, true);
+    assert.deepEqual(diskEntry.groups, suggestions);
     assert.equal(cacheDirStats.mode & 0o777, 0o700);
     assert.equal(cacheFileStats.mode & 0o777, 0o600);
     assert.deepEqual(await secondService.aiCache.get(key), suggestions);
@@ -96,9 +97,9 @@ test("compressed AI cache entries round-trip from disk", async () => {
   }
 });
 
-test("getChangesSummary reuses one git status snapshot", async () => {
+test("getFileDiffs reuses one git status snapshot", async () => {
   const files = ["src/a.ts", "src/b.ts"];
-  const { service, status } = await createGitServiceForSummaryTests(files);
+  const { service, status } = await createGitServiceForDiffTests(files);
   let statusCalls = 0;
 
   service.git = {
@@ -118,14 +119,15 @@ test("getChangesSummary reuses one git status snapshot", async () => {
     }),
   };
 
-  await service.getChangesSummary();
+  await service.getFileDiffs(inRepo(files));
+  await service.getUnstagedFiles();
 
   assert.equal(statusCalls, 1);
 });
 
-test("getChangesSummary collects diffs with bounded concurrency", async () => {
+test("per-file fallback diffs are collected with bounded concurrency", async () => {
   const files = ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"];
-  const { service, status } = await createGitServiceForSummaryTests(files);
+  const { service, status } = await createGitServiceForDiffTests(files);
   let inFlightDiffs = 0;
   let maxInFlightDiffs = 0;
 
@@ -151,7 +153,7 @@ test("getChangesSummary collects diffs with bounded concurrency", async () => {
     }),
   };
 
-  await service.getChangesSummary();
+  await service.getFileDiffs(inRepo(files));
 
   assert.ok(maxInFlightDiffs > 1, "expected concurrent diff collection");
   assert.ok(maxInFlightDiffs <= 4, "expected bounded concurrency");
@@ -443,7 +445,7 @@ test("hard truncation keeps both early and late diff context", async () => {
 
 test("generated files get summary-only diffs in git layer", async () => {
   const files = ["dist/bundle.min.js"];
-  const { service, status } = await createGitServiceForSummaryTests(files);
+  const { service, status } = await createGitServiceForDiffTests(files);
   let fullDiffCalled = false;
 
   service.git = {
@@ -457,7 +459,7 @@ test("generated files get summary-only diffs in git layer", async () => {
     }),
   };
 
-  const result = await service.getFileDiff("/repo/dist/bundle.min.js", false);
+  const result = await service.getFileDiff("/repo/dist/bundle.min.js");
 
   assert.equal(fullDiffCalled, false);
   assert.ok(result.changes.includes("Generated file updated"));
@@ -467,7 +469,7 @@ test("generated files get summary-only diffs in git layer", async () => {
 
 test("git diff requests zero context for AI grouping", async () => {
   const files = ["src/a.ts"];
-  const { service, status } = await createGitServiceForSummaryTests(files);
+  const { service, status } = await createGitServiceForDiffTests(files);
   let diffArgs = null;
 
   service.git = {
@@ -481,7 +483,7 @@ test("git diff requests zero context for AI grouping", async () => {
     }),
   };
 
-  await service.getFileDiff("/repo/src/a.ts", false);
+  await service.getFileDiff("/repo/src/a.ts");
 
   assert.ok(diffArgs.includes("-U0"));
 });
