@@ -9,10 +9,6 @@ export const ApiKeySchema = v.pipe(
   v.transform(val => val.trim())
 );
 
-export const CommitConfigSchema = v.object({
-  apiKey: v.optional(ApiKeySchema),
-});
-
 export const GitDiffSchema = v.object({
   file: v.pipe(v.string(), v.minLength(1, "File path is required")),
   additions: v.pipe(
@@ -54,10 +50,3 @@ export const CommitGroupSchema = v.object({
   description: v.optional(v.pipe(v.string(), v.maxLength(500))),
   confidence: v.pipe(v.number(), v.minValue(0), v.maxValue(1)),
 });
-
-// Validation result type
-export type ValidationResult<T = unknown> = {
-  isValid: boolean;
-  error?: string;
-  sanitizedValue?: T;
-};
