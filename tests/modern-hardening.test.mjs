@@ -131,36 +131,6 @@ test("large AI workloads are split into bounded chunks", async () => {
   );
 });
 
-test("single-commit generation requires one group covering every staged file", async () => {
-  process.env.GEMINI_API_KEY = TEST_API_KEY;
-  const module = await loadModule();
-  const AIService = await module.AIService();
-  const service = new AIService();
-  stubCache(service);
-
-  service.genAI = {
-    models: {
-      generateContent: async () => ({
-        text: JSON.stringify({
-          groups: [
-            {
-              files: ["F1", "F2"],
-              message: "Updated cohesive staged changes",
-              confidence: 0.9,
-            },
-          ],
-        }),
-      }),
-    },
-  };
-
-  const group = await service.generateSingleCommit([
-    makeDiff("src/app.ts"),
-    makeDiff("src/config.ts"),
-  ]);
-  assert.deepEqual(group.files, ["src/app.ts", "src/config.ts"]);
-});
-
 test("timeout helper aborts the underlying operation", async () => {
   const { security } = await loadModule();
   let aborted = false;
@@ -234,7 +204,7 @@ test("untracked text files are bounded and every line is marked as added", async
       }),
     };
 
-    const diff = await service.getFileDiff(filePath, false);
+    const diff = await service.getFileDiff(filePath);
     assert.equal(diff.isNew, true);
     assert.equal(diff.changes, "+first\n+second\n+third");
   } finally {
@@ -259,36 +229,6 @@ test("intelligent multi-commit mode rejects a non-empty index", async () => {
   };
 
   await assert.rejects(service.assertCleanIndexForBatch(), /empty Git index/i);
-});
-
-test("staged summary-only diffs include --cached", async () => {
-  const module = await loadModule();
-  const GitService = await module.GitService();
-  const service = new GitService();
-  service.repositoryPath = "/repo";
-  let summaryArgs;
-  service.git = {
-    status: async () => ({
-      modified: [],
-      not_added: [],
-      deleted: [],
-      staged: ["dist/app.min.js"],
-      created: [],
-      renamed: [],
-      current: "main",
-    }),
-    diffSummary: async args => {
-      summaryArgs = args;
-      return {
-        files: [{ file: "dist/app.min.js", insertions: 10, deletions: 2 }],
-      };
-    },
-  };
-
-  const result = await service.getFileDiff("/repo/dist/app.min.js", true);
-  assert.equal(summaryArgs.includes("--cached"), true);
-  assert.equal(result.additions, 10);
-  assert.equal(result.deletions, 2);
 });
 
 test("repository discovery and Git operations work from linked worktrees", async () => {
@@ -340,7 +280,12 @@ test("repository discovery and Git operations work from linked worktrees", async
 
     await service.stageFiles([changedFile]);
     await service.commit("Added worktree change");
-    assert.equal(await service.getLastCommitMessage(), "Added worktree change");
+    const { stdout: lastSubject } = await execFileAsync(
+      "git",
+      ["log", "-1", "--format=%s"],
+      { cwd: worktreePath }
+    );
+    assert.equal(lastSubject.trim(), "Added worktree change");
   } finally {
     await rm(basePath, { recursive: true, force: true });
   }
