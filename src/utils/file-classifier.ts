@@ -117,7 +117,7 @@ const isGenerated = (filePath: string): boolean =>
   GENERATED_PATTERNS.some(pattern => pattern.test(filePath));
 
 const isBuildArtifact = (filePath: string): boolean => {
-  const segments = filePath.split(/[\\/]/);
+  const segments = filePath.split("/");
   for (let i = 0; i < segments.length; i++) {
     const segment = segments[i];
     if (!segment || !BUILD_PATH_SEGMENTS.has(segment)) continue;

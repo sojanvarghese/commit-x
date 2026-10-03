@@ -9,7 +9,23 @@ interface SensitivePattern {
   pattern: RegExp;
   label: string;
   blockFile: boolean;
+  // Narrows a regex hit before it is redacted.
+  confirm?: (match: string) => boolean;
 }
+
+const passesLuhnCheck = (candidate: string): boolean => {
+  const digits = candidate.replace(/\D/g, "");
+  let sum = 0;
+  for (let i = 0; i < digits.length; i++) {
+    let digit = Number(digits[digits.length - 1 - i]);
+    if (i % 2 === 1) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+  }
+  return sum % 10 === 0;
+};
 
 const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
   {
@@ -61,7 +77,9 @@ const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
     blockFile: true,
   },
   {
-    pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+    // The local part is bounded: unbounded, it rescans a long token from every
+    // start position when no "@" follows, which is quadratic.
+    pattern: /[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
     label: "email address",
     blockFile: false,
   },
@@ -74,6 +92,9 @@ const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
     pattern: /\b(?:\d[ -]*?){13,19}\b/g,
     label: "possible payment card number",
     blockFile: false,
+    // Timestamps and numeric IDs are 13-19 digits too; the checksum tells
+    // them apart from card numbers.
+    confirm: passesLuhnCheck,
   },
 ];
 
@@ -102,7 +123,7 @@ export const sanitizeFilePath = (filePath: string, baseDir: string): string => {
       return path.basename(filePath);
     }
 
-    return relativePath.split(path.sep).join("/");
+    return relativePath;
   } catch {
     // If any error occurs, just return the filename
     return path.basename(filePath);
@@ -115,34 +136,14 @@ export const sanitizeDiffContent = (
   const warnings: string[] = [];
   let sanitized = content;
 
-  for (const { pattern, label } of SENSITIVE_PATTERNS) {
-    pattern.lastIndex = 0;
-    const matches = sanitized.match(pattern);
-    if (matches) {
-      warnings.push(`Potential ${label} redacted`);
-      pattern.lastIndex = 0;
-      sanitized = sanitized.replace(pattern, "[REDACTED]");
-    }
-  }
-
-  // Remove or mask common sensitive file patterns
-  const sensitiveFilePatterns = [
-    /\.env/gi,
-    /\.key/gi,
-    /\.pem/gi,
-    /\.p12/gi,
-    /\.pfx/gi,
-    /config\.json/gi,
-    /secrets\.json/gi,
-    /credentials\.json/gi,
-  ];
-
-  for (const pattern of sensitiveFilePatterns) {
-    pattern.lastIndex = 0;
-    if (pattern.test(sanitized)) {
-      warnings.push("Sensitive file pattern detected");
-      sanitized = sanitized.replace(pattern, "[SENSITIVE_FILE]");
-    }
+  for (const { pattern, label, confirm } of SENSITIVE_PATTERNS) {
+    let redacted = false;
+    sanitized = sanitized.replace(pattern, match => {
+      if (confirm && !confirm(match)) return match;
+      redacted = true;
+      return "[REDACTED]";
+    });
+    if (redacted) warnings.push(`Potential ${label} redacted`);
   }
 
   // Git patch headers repeat repository paths. The model receives opaque file
@@ -220,7 +221,7 @@ export const shouldSkipFileForAI = (
   }
 
   // Skip files in sensitive directories
-  const pathParts = filePath.toLowerCase().split(/[\\/]/);
+  const pathParts = filePath.toLowerCase().split("/");
 
   for (const part of pathParts) {
     if (SENSITIVE_DIRECTORIES.includes(part)) {
