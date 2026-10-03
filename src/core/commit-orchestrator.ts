@@ -1,13 +1,11 @@
 import process from "node:process";
+import { basename } from "node:path";
 import { lightColors } from "../utils/colors.js";
 import { lightSpinner } from "../utils/spinner.js";
 import type { GitService } from "../services/git.js";
 import type { AIService } from "../services/ai.js";
 import type { TimeoutCalculationOptions } from "../utils/timeout.js";
 import type { CommitGroup, CommitOptions, GitDiff } from "../types/common.js";
-
-const getFileName = (filePath: string): string =>
-  filePath.split("/").pop() ?? filePath;
 
 const shouldSkipFile = (diff: GitDiff): boolean => {
   const totalChanges = diff.additions + diff.deletions;
@@ -19,7 +17,7 @@ const shouldSkipFile = (diff: GitDiff): boolean => {
 };
 
 const logSkippedFile = (diff: GitDiff): void => {
-  const fileName = getFileName(diff.file);
+  const fileName = basename(diff.file);
   if (diff.isNew) {
     console.log(lightColors.yellow(`  Skipping empty new file: ${fileName}`));
   } else {
@@ -68,7 +66,7 @@ const previewGroupDryRun = (group: CommitGroup, groupName: string): number => {
     [
       lightColors.blue(`  Would commit ${groupName}:`),
       lightColors.gray(
-        `  Files: ${group.files.map(f => getFileName(f)).join(", ")}`
+        `  Files: ${group.files.map(f => basename(f)).join(", ")}`
       ),
       lightColors.blue(`  Message: "${group.message}"`),
     ].join("\n")
@@ -97,7 +95,7 @@ const executeGroupCommit = async (
     const actualGroupName =
       stagedFiles.length > 1
         ? `${stagedFiles.length} files`
-        : getFileName(onlyFile ?? "file");
+        : basename(onlyFile ?? "file");
 
     commitSpinner.succeed(`✅ ${actualGroupName}: ${group.message}`);
     return stagedFiles.length;
@@ -109,7 +107,7 @@ const executeGroupCommit = async (
         lightColors.red(`  Failed to restore Git index: ${rollbackError}`)
       );
     }
-    commitSpinner.fail(lightColors.red(`Failed to commit group: ${error}`));
+    commitSpinner.fail(`Failed to commit ${groupName}`);
     throw error;
   }
 };
@@ -124,19 +122,25 @@ const processGroup = async (
   const groupName =
     group.files.length > 1
       ? `${group.files.length} files`
-      : getFileName(firstFile ?? "file");
+      : basename(firstFile ?? "file");
 
   return dryRun
     ? previewGroupDryRun(group, groupName)
     : executeGroupCommit(gitService, group, groupName, allDiffs);
 };
 
-export const commitFilesBatch = async (
+interface CommitPlan {
+  groups: CommitGroup[];
+  diffs: GitDiff[];
+  skippedCount: number;
+}
+
+const planCommits = async (
   gitService: GitService,
-  getAIService: () => AIService,
+  getAIService: () => Promise<AIService>,
   files: string[],
   options: CommitOptions
-): Promise<number> => {
+): Promise<CommitPlan | undefined> => {
   const spinner = lightSpinner(
     "Analyzing files for intelligent grouping... \n\n"
   ).start();
@@ -146,62 +150,72 @@ export const commitFilesBatch = async (
       await gitService.assertCleanIndexForBatch();
     }
 
-    const analyzedDiffs = await gitService.getFileDiffs(files, false);
-    const allDiffs: GitDiff[] = [];
-    const skippedFiles: string[] = [];
+    const diffs: GitDiff[] = [];
+    let skippedCount = 0;
 
-    for (const diff of analyzedDiffs) {
+    for (const diff of await gitService.getFileDiffs(files)) {
       if (shouldSkipFile(diff)) {
         logSkippedFile(diff);
-        skippedFiles.push(diff.file);
+        skippedCount++;
         continue;
       }
-      allDiffs.push(diff);
+      diffs.push(diff);
     }
 
-    if (allDiffs.length === 0) {
+    if (diffs.length === 0) {
       spinner.fail("No valid files to process");
-      return 0;
+      return undefined;
     }
 
     spinner.message = "Using AI to group related changes...";
 
-    const aggregatedResult = await getAIService().generateAggregatedCommits(
-      allDiffs,
+    const aiService = await getAIService();
+    const { groups } = await aiService.generateAggregatedCommits(
+      diffs,
       options.useCached === undefined ? {} : { useCached: options.useCached }
     );
 
-    if (aggregatedResult.groups.length === 0) {
+    if (groups.length === 0) {
       spinner.fail("AI grouping returned no commit groups");
-      return 0;
+      return undefined;
     }
 
     spinner.succeed(
-      `AI grouped ${allDiffs.length} files into ${aggregatedResult.groups.length} logical commits`
+      `AI grouped ${diffs.length} files into ${groups.length} logical commits`
     );
-
-    let processedCount = 0;
-    for (const group of aggregatedResult.groups) {
-      processedCount += await processGroup(
-        gitService,
-        group,
-        allDiffs,
-        Boolean(options.dryRun)
-      );
-    }
-
-    if (skippedFiles.length > 0) {
-      console.log(
-        lightColors.yellow(
-          `Skipped ${skippedFiles.length} files (empty or failed analysis)`
-        )
-      );
-    }
-
-    return processedCount;
+    return { groups, diffs, skippedCount };
   } catch (error) {
     spinner.fail("Commit processing failed");
-    console.error(lightColors.red(`Processing error: ${error}`));
     throw error;
   }
+};
+
+export const commitFilesBatch = async (
+  gitService: GitService,
+  getAIService: () => Promise<AIService>,
+  files: string[],
+  options: CommitOptions
+): Promise<number> => {
+  const plan = await planCommits(gitService, getAIService, files, options);
+  if (!plan) return 0;
+
+  let processedCount = 0;
+  for (const group of plan.groups) {
+    processedCount += await processGroup(
+      gitService,
+      group,
+      plan.diffs,
+      Boolean(options.dryRun)
+    );
+  }
+
+  if (plan.skippedCount > 0) {
+    console.log(
+      lightColors.yellow(
+        `Skipped ${plan.skippedCount} files (empty or failed analysis)`
+      )
+    );
+  }
+
+  return processedCount;
 };

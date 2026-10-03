@@ -21,8 +21,23 @@ export interface DiffSummaryFile {
   deletions?: number;
 }
 
-const toRelativeFilePath = (file: string, repositoryPath: string): string =>
-  relative(repositoryPath, file).split("\\").join("/");
+export interface DiffTarget {
+  file: string;
+  relativeFile: string;
+}
+
+// Keeps the argument list far below ARG_MAX for long path lists.
+const PATCH_BATCH_SIZE = 100;
+
+// Pins the header format (a/ and b/ prefixes, one path per section) so a
+// batched patch can be split per file whatever the user's diff config says.
+const PATCH_ARGS = [
+  "-U0",
+  "--no-renames",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+];
+const SECTION_HEADER = "diff --git ";
 
 const findFileSummary = (
   diffSummary: { files: DiffSummaryFile[] },
@@ -63,17 +78,14 @@ const isBulkFilePath = (relativeFile: string): boolean => {
 
 const buildDiffMetadata = (
   relativeFile: string,
-  status: RawGitStatus,
-  staged: boolean
+  status: RawGitStatus
 ): Pick<GitDiff, "isNew" | "isDeleted" | "isRenamed" | "oldPath"> => {
   const oldPath = renamedFrom(status, relativeFile);
   const fileStatus = status.files?.find(file => file.path === relativeFile);
   return {
-    isNew:
-      isNewFile(status, relativeFile) || (staged && fileStatus?.index === "A"),
+    isNew: isNewFile(status, relativeFile),
     isDeleted:
-      status.deleted.includes(relativeFile) ||
-      (staged ? fileStatus?.index === "D" : fileStatus?.working_dir === "D"),
+      status.deleted.includes(relativeFile) || fileStatus?.working_dir === "D",
     isRenamed: isRenamedTo(status, relativeFile),
     ...(oldPath === undefined ? {} : { oldPath }),
   };
@@ -84,44 +96,82 @@ const buildSummaryDiff = (
   relativeFile: string,
   status: RawGitStatus,
   fileSummary: DiffSummaryFile | undefined,
-  changesLabel: string,
-  staged: boolean
+  changesLabel: string
 ): GitDiff => ({
   file: validatedFile,
   additions: fileSummary?.insertions ?? 0,
   deletions: fileSummary?.deletions ?? 0,
   changes: changesLabel,
-  ...buildDiffMetadata(relativeFile, status, staged),
+  ...buildDiffMetadata(relativeFile, status),
 });
 
 const emptyDiff = (
   validatedFile: string,
   relativeFile: string,
-  status: RawGitStatus,
-  staged: boolean
+  status: RawGitStatus
 ): GitDiff => ({
   file: validatedFile,
   additions: 0,
   deletions: 0,
   changes: "",
-  ...buildDiffMetadata(relativeFile, status, staged),
+  ...buildDiffMetadata(relativeFile, status),
 });
+
+// Untracked files are read from disk and bulk files only need a summary; the
+// rest need their patch from git.
+export const needsPatch = (
+  relativeFile: string,
+  status: RawGitStatus
+): boolean =>
+  !status.not_added.includes(relativeFile) && !isBulkFilePath(relativeFile);
+
+// Reads the path back out of `diff --git a/<path> b/<path>`. Both sides are
+// the same path, so it is split at the midpoint; headers git had to quote
+// (non-ASCII or control characters) do not match and return undefined.
+const sectionPath = (section: string): string | undefined => {
+  if (!section.startsWith(SECTION_HEADER)) return undefined;
+  const lineEnd = section.indexOf("\n");
+  const header = section.slice(
+    SECTION_HEADER.length,
+    lineEnd === -1 ? undefined : lineEnd
+  );
+  const path = header.slice(2, 2 + (header.length - 5) / 2);
+  return header === `a/${path} b/${path}` ? path : undefined;
+};
+
+// One `git diff` for many files instead of one process per file. Purely an
+// optimisation: any file absent from the result is diffed on its own.
+export const fetchPatches = async (
+  git: SimpleGit,
+  relativeFiles: string[]
+): Promise<Map<string, string>> => {
+  const patches = new Map<string, string>();
+  if (relativeFiles.length < 2) return patches;
+
+  for (let i = 0; i < relativeFiles.length; i += PATCH_BATCH_SIZE) {
+    const batch = relativeFiles.slice(i, i + PATCH_BATCH_SIZE);
+    const output = await withTimeout(
+      git.diff([...PATCH_ARGS, "--", ...batch]),
+      calculateGitTimeout({ fileCount: batch.length })
+    );
+    for (const section of output.split(/^(?=diff --git )/m)) {
+      const path = sectionPath(section);
+      if (path !== undefined) patches.set(path, section);
+    }
+  }
+  return patches;
+};
 
 const handleBulkFile = async (
   git: SimpleGit,
   validatedFile: string,
   relativeFile: string,
-  status: RawGitStatus,
-  staged: boolean
+  status: RawGitStatus
 ): Promise<GitDiff | null> => {
-  const summaryArgs = staged
-    ? ["--cached", "--", relativeFile]
-    : ["--", relativeFile];
-  const summaryTimeout = calculateGitTimeout({ diffSize: 0 });
   try {
     const diffSummary = await withTimeout(
-      git.diffSummary(summaryArgs),
-      summaryTimeout
+      git.diffSummary(["--", relativeFile]),
+      calculateGitTimeout({ diffSize: 0 })
     );
     const fileSummary = findFileSummary(
       diffSummary,
@@ -139,8 +189,7 @@ const handleBulkFile = async (
       fileSummary,
       category === "LOCK"
         ? `Lock file updated: +${additions}/-${deletions}`
-        : `Generated file updated: +${additions}/-${deletions}`,
-      staged
+        : `Generated file updated: +${additions}/-${deletions}`
     );
   } catch {
     return null;
@@ -220,13 +269,10 @@ const readUntrackedDiff = async (
   }
 };
 
-export const buildFileDiff = async (
-  git: SimpleGit,
+export const resolveDiffTarget = (
   file: string,
-  repositoryPath: string,
-  status: RawGitStatus,
-  staged: boolean = false
-): Promise<GitDiff> => {
+  repositoryPath: string
+): DiffTarget => {
   const pathValidation = validateAndSanitizePath(file, repositoryPath);
   if (!pathValidation.isValid || !pathValidation.sanitizedValue) {
     throw new SecureError(
@@ -237,10 +283,19 @@ export const buildFileDiff = async (
     );
   }
 
-  const validatedFile = pathValidation.sanitizedValue;
-  const relativeFile = toRelativeFilePath(file, repositoryPath);
+  return {
+    file: pathValidation.sanitizedValue,
+    relativeFile: relative(repositoryPath, pathValidation.sanitizedValue),
+  };
+};
 
-  if (status.not_added.includes(relativeFile) && !staged) {
+export const buildFileDiff = async (
+  git: SimpleGit,
+  { file: validatedFile, relativeFile }: DiffTarget,
+  status: RawGitStatus,
+  patches?: ReadonlyMap<string, string>
+): Promise<GitDiff> => {
+  if (status.not_added.includes(relativeFile)) {
     const untracked = await readUntrackedDiff(validatedFile, relativeFile);
     return {
       file: validatedFile,
@@ -256,19 +311,18 @@ export const buildFileDiff = async (
       git,
       validatedFile,
       relativeFile,
-      status,
-      staged
+      status
     );
     if (bulkResult) return bulkResult;
   }
 
-  const diffArgs = staged
-    ? ["--cached", "-U0", "--", relativeFile]
-    : ["-U0", "--", relativeFile];
-  const diffTimeout = calculateGitTimeout({ diffSize: 0 });
-
   try {
-    const diff = await withTimeout(git.diff(diffArgs), diffTimeout);
+    const diff =
+      patches?.get(relativeFile) ??
+      (await withTimeout(
+        git.diff([...PATCH_ARGS, "--", relativeFile]),
+        calculateGitTimeout({ diffSize: 0 })
+      ));
 
     const diffValidation = validateDiffSize(diff);
 
@@ -287,10 +341,10 @@ export const buildFileDiff = async (
       additions: changeCounts.additions,
       deletions: changeCounts.deletions,
       changes: diffValidation.sanitizedValue ?? "",
-      ...buildDiffMetadata(relativeFile, status, staged),
+      ...buildDiffMetadata(relativeFile, status),
     };
   } catch (error) {
     if (error instanceof SecureError) throw error;
-    return emptyDiff(validatedFile, relativeFile, status, staged);
+    return emptyDiff(validatedFile, relativeFile, status);
   }
 };

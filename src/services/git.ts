@@ -1,6 +1,6 @@
 import { simpleGit, type SimpleGit } from "simple-git";
-import { basename, resolve } from "node:path";
-import type { GitDiff, GitStatus } from "../types/common.js";
+import { resolve } from "node:path";
+import type { GitDiff } from "../types/common.js";
 import {
   validateAndSanitizePath,
   withTimeout,
@@ -13,35 +13,63 @@ import {
   calculateGitTimeout,
   type TimeoutCalculationOptions,
 } from "../utils/timeout.js";
-import { ERROR_MESSAGES } from "../constants/messages.js";
-import { UI_CONSTANTS } from "../constants/ui.js";
-import { GitCache, type RepoInfo } from "./git-cache.js";
-import { buildFileDiff, type RawGitStatus } from "./git-diff-builder.js";
+import {
+  buildFileDiff,
+  fetchPatches,
+  needsPatch,
+  resolveDiffTarget,
+  type DiffTarget,
+  type RawGitStatus,
+} from "./git-diff-builder.js";
 import { mapWithConcurrency } from "../utils/request-batcher.js";
 
 const DIFF_COLLECTION_CONCURRENCY = 4;
+const STATUS_CACHE_TTL_MS = 5000;
+
+type GitTimeoutOptions = Omit<TimeoutCalculationOptions, "operationType">;
+
+// Every path with working-tree changes, listed once.
+const changedPaths = (status: RawGitStatus): string[] => [
+  ...new Set([
+    ...status.modified,
+    ...status.not_added,
+    ...status.deleted,
+    ...status.renamed.map(rename => rename.to),
+  ]),
+];
 
 export class GitService {
   private git: SimpleGit;
   private repositoryPath: string;
-  private readonly cache: GitCache;
+  private statusSnapshot: { status: RawGitStatus; takenAt: number } | undefined;
 
   constructor(repositoryPath: string = process.cwd()) {
     this.repositoryPath = resolve(repositoryPath);
     this.git = simpleGit({ baseDir: this.repositoryPath });
-    this.cache = new GitCache();
   }
 
-  private async getRawStatus(
-    forceFresh: boolean = false
-  ): Promise<RawGitStatus> {
-    const cached = forceFresh ? undefined : this.cache.getRawStatus();
-    if (cached) return cached;
+  // Failures with no recognisable cause are git failures by construction.
+  private readonly run = <T>(
+    operation: string,
+    action: () => Promise<T>,
+    file?: string
+  ): Promise<T> =>
+    withErrorHandling(
+      action,
+      file === undefined ? { operation } : { operation, file },
+      ErrorType.GIT_ERROR
+    );
+
+  private async getRawStatus(): Promise<RawGitStatus> {
+    const snapshot = this.statusSnapshot;
+    if (snapshot && Date.now() - snapshot.takenAt < STATUS_CACHE_TTL_MS) {
+      return snapshot.status;
+    }
     const status = await withTimeout(
       this.git.status(),
       calculateGitTimeout({})
     );
-    this.cache.setRawStatus(status);
+    this.statusSnapshot = { status, takenAt: Date.now() };
     return status;
   }
 
@@ -60,311 +88,151 @@ export class GitService {
     return validPaths;
   };
 
+  private readonly requireValidPaths = (
+    files: string[],
+    operation: string
+  ): string[] =>
+    files.map(file => {
+      const validation = validateAndSanitizePath(file, this.repositoryPath);
+      if (!validation.isValid || !validation.sanitizedValue) {
+        throw new SecureError(
+          validation.error ?? `Invalid file path: ${file}`,
+          ErrorType.SECURITY_ERROR,
+          { operation, file },
+          false
+        );
+      }
+      return validation.sanitizedValue;
+    });
+
+  // Compares the index with HEAD only, which is far cheaper than a status
+  // (that also scans the working tree).
+  private readonly hasStagedChanges = async (): Promise<boolean> => {
+    const stagedNames = await withTimeout(
+      this.git.diff(["--cached", "--name-only"]),
+      calculateGitTimeout({})
+    );
+    return stagedNames.trim() !== "";
+  };
+
+  // Paths are validated here, once; invalid ones are skipped with a warning.
   private readonly collectDiffs = async (
     files: string[],
-    status: RawGitStatus,
-    staged: boolean = false
+    status: RawGitStatus
   ): Promise<GitDiff[]> => {
+    const skip = (file: string, error: unknown): null => {
+      console.warn(`Failed to get diff for ${file}:`, error);
+      return null;
+    };
+
+    const targets = files.flatMap((file): DiffTarget[] => {
+      try {
+        return [resolveDiffTarget(file, this.repositoryPath)];
+      } catch (error) {
+        skip(file, error);
+        return [];
+      }
+    });
+
+    const patches = await fetchPatches(
+      this.git,
+      targets
+        .map(target => target.relativeFile)
+        .filter(relativeFile => needsPatch(relativeFile, status))
+    ).catch(() => undefined);
+
     const results = await mapWithConcurrency(
-      files,
+      targets,
       DIFF_COLLECTION_CONCURRENCY,
-      async file => {
+      async target => {
         try {
-          return await buildFileDiff(
-            this.git,
-            file,
-            this.repositoryPath,
-            status,
-            staged
-          );
+          return await buildFileDiff(this.git, target, status, patches);
         } catch (error) {
-          console.warn(`Failed to get diff for ${file}:`, error);
-          return null;
+          return skip(target.file, error);
         }
       }
     );
     return results.filter((diff): diff is GitDiff => diff !== null);
   };
 
-  private async initializeRepositoryPath(): Promise<void> {
-    const validation = await validateGitRepository(this.repositoryPath);
-    if (validation.isValid && validation.sanitizedValue) {
-      this.repositoryPath = validation.sanitizedValue;
-      this.git = simpleGit({ baseDir: this.repositoryPath });
-      return;
-    }
-    throw new SecureError(
-      validation.error ?? "Git repository validation failed",
-      ErrorType.GIT_ERROR,
-      { operation: "initializeRepositoryPath" },
-      false
-    );
-  }
-
+  // Also re-roots the service at the repository's top level.
   isGitRepository = async (): Promise<boolean> => {
-    return withErrorHandling(
-      async () => {
-        await this.initializeRepositoryPath();
-        return true;
-      },
-      { operation: "isGitRepository" }
-    );
+    const validation = await validateGitRepository(this.repositoryPath);
+    if (!validation.isValid || !validation.sanitizedValue) return false;
+    this.repositoryPath = validation.sanitizedValue;
+    this.git = simpleGit({ baseDir: this.repositoryPath });
+    return true;
   };
 
-  getStatus = async (): Promise<GitStatus> => {
-    return withErrorHandling(
-      async () => {
-        const cached = this.cache.getStatus();
-        if (cached) return cached;
-
-        const rawStatus = await this.getRawStatus();
-        const staged = this.validateFilePaths(rawStatus.staged);
-        const unstaged = this.validateFilePaths([
-          ...rawStatus.modified,
-          ...rawStatus.deleted,
-          ...rawStatus.renamed.map(rename => rename.to),
-        ]);
-        const untracked = this.validateFilePaths(rawStatus.not_added);
-        const result: GitStatus = {
-          staged,
-          unstaged,
-          untracked,
-          total: staged.length + unstaged.length + untracked.length,
-        };
-        this.cache.setStatus(result);
-        return result;
-      },
-      { operation: "getStatus" }
+  getUnstagedFiles = async (): Promise<string[]> =>
+    this.run("getUnstagedFiles", async () =>
+      this.validateFilePaths(changedPaths(await this.getRawStatus()))
     );
-  };
 
-  getUnstagedFiles = async (): Promise<string[]> => {
-    return withErrorHandling(
-      async () => {
-        const status = await this.getRawStatus();
-        return this.validateFilePaths(
-          [
-            ...status.modified,
-            ...status.not_added,
-            ...status.deleted,
-            ...status.renamed.map(rename => rename.to),
-          ].filter((file, index, all) => all.indexOf(file) === index)
-        );
-      },
-      { operation: "getUnstagedFiles" }
-    );
-  };
-
-  getFileDiff = async (
-    file: string,
-    staged: boolean = false
-  ): Promise<GitDiff> => {
-    return withErrorHandling(
+  getFileDiff = async (file: string): Promise<GitDiff> =>
+    this.run(
+      "getFileDiff",
       async () =>
         buildFileDiff(
           this.git,
-          file,
-          this.repositoryPath,
-          await this.getRawStatus(),
-          staged
+          resolveDiffTarget(file, this.repositoryPath),
+          await this.getRawStatus()
         ),
-      { operation: "getFileDiff", file }
+      file
     );
-  };
 
-  getFileDiffs = async (
-    files: string[],
-    staged: boolean = false
-  ): Promise<GitDiff[]> => {
-    return withErrorHandling(
-      async () => {
-        const validatedFiles = this.validateFilePaths(files);
-        if (validatedFiles.length === 0) return [];
-        return this.collectDiffs(
-          validatedFiles,
-          await this.getRawStatus(),
-          staged
-        );
-      },
-      { operation: "getFileDiffs" }
-    );
-  };
-
-  getStagedDiff = async (): Promise<GitDiff[]> => {
-    return withErrorHandling(
-      async () => {
-        const status = await this.getRawStatus();
-        if (status.staged.length === 0) {
-          throw new SecureError(
-            ERROR_MESSAGES.NO_STAGED_CHANGES,
-            ErrorType.GIT_ERROR,
-            { operation: "getStagedDiff" },
-            true
-          );
-        }
-        const validatedFiles = this.validateFilePaths(status.staged);
-        return this.collectDiffs(validatedFiles, status, true);
-      },
-      { operation: "getStagedDiff" }
-    );
-  };
-
-  getChangesSummary = async (): Promise<string> => {
-    const status = await this.getRawStatus();
-    const unstagedFiles = [
-      ...status.modified,
-      ...status.not_added,
-      ...status.deleted,
-      ...status.renamed.map(rename => rename.to),
-    ].filter((file, index, all) => all.indexOf(file) === index);
-
-    if (unstagedFiles.length === 0) return "No unstaged changes found.";
-
-    const validatedFiles = this.validateFilePaths(unstagedFiles);
-    const diffs = await this.collectDiffs(validatedFiles, status, false);
-
-    if (diffs.length === 0) return "No valid changes found.";
-
-    const totalAdditions = diffs.reduce((sum, diff) => sum + diff.additions, 0);
-    const totalDeletions = diffs.reduce((sum, diff) => sum + diff.deletions, 0);
-
-    const fileLines = diffs
-      .map(
-        diff =>
-          `- ${this.getFileStatus(diff)} ${diff.file} (+${diff.additions}/-${diff.deletions})`
-      )
-      .join("\n");
-
-    return [
-      "Changes summary:",
-      `- ${diffs.length} file(s) modified`,
-      `- ${totalAdditions} line(s) added`,
-      `- ${totalDeletions} line(s) deleted`,
-      "",
-      "Files:",
-      fileLines,
-      "",
-    ].join("\n");
-  };
-
-  stageAll = async (): Promise<void> => {
-    return withErrorHandling(
-      async () => {
-        await withTimeout(this.git.add("."), calculateGitTimeout({}));
-        this.cache.clear();
-      },
-      { operation: "stageAll" }
-    );
-  };
-
-  stageFile = async (
-    file: string,
-    timeoutOptions?: Omit<TimeoutCalculationOptions, "operationType">
-  ): Promise<void> => {
-    return withErrorHandling(
-      async () => {
-        const pathValidation = validateAndSanitizePath(
-          file,
-          this.repositoryPath
-        );
-        if (!pathValidation.isValid || !pathValidation.sanitizedValue) {
-          throw new SecureError(
-            pathValidation.error ?? "Invalid file path",
-            ErrorType.SECURITY_ERROR,
-            { operation: "stageFile", file },
-            false
-          );
-        }
-        await withTimeout(
-          this.git.add(pathValidation.sanitizedValue),
-          calculateGitTimeout(timeoutOptions ?? {})
-        );
-        this.cache.clear();
-      },
-      { operation: "stageFile", file }
-    );
-  };
+  getFileDiffs = async (files: string[]): Promise<GitDiff[]> =>
+    this.run("getFileDiffs", async () => {
+      if (files.length === 0) return [];
+      return this.collectDiffs(files, await this.getRawStatus());
+    });
 
   stageFiles = async (
     files: string[],
-    timeoutOptions?: Omit<TimeoutCalculationOptions, "operationType">
-  ): Promise<void> => {
-    return withErrorHandling(
-      async () => {
-        const status = await this.getRawStatus(true);
-        if (status.staged.length > 0) {
-          throw new SecureError(
-            "Cannot stage an intelligent commit group while the Git index contains other changes.",
-            ErrorType.GIT_ERROR,
-            { operation: "stageFiles" },
-            true
-          );
-        }
-
-        const sanitizedFiles: string[] = [];
-        for (const file of files) {
-          const validation = validateAndSanitizePath(file, this.repositoryPath);
-          if (!validation.isValid || !validation.sanitizedValue) {
-            throw new SecureError(
-              validation.error ?? `Invalid file path: ${file}`,
-              ErrorType.SECURITY_ERROR,
-              { operation: "stageFiles", file },
-              false
-            );
-          }
-          sanitizedFiles.push(validation.sanitizedValue);
-        }
-
-        if (sanitizedFiles.length !== files.length || files.length === 0) {
-          throw new SecureError(
-            "Every requested file must be valid before staging",
-            ErrorType.SECURITY_ERROR,
-            { operation: "stageFiles" },
-            false
-          );
-        }
-
-        await withTimeout(
-          this.git.add(sanitizedFiles),
-          calculateGitTimeout(timeoutOptions ?? {})
+    timeoutOptions?: GitTimeoutOptions
+  ): Promise<void> =>
+    this.run("stageFiles", async () => {
+      if (await this.hasStagedChanges()) {
+        throw new SecureError(
+          "Cannot stage an intelligent commit group while the Git index contains other changes.",
+          ErrorType.GIT_ERROR,
+          { operation: "stageFiles" },
+          true
         );
-        this.cache.clear();
-      },
-      { operation: "stageFiles" }
-    );
-  };
+      }
+
+      if (files.length === 0) {
+        throw new SecureError(
+          "Every requested file must be valid before staging",
+          ErrorType.SECURITY_ERROR,
+          { operation: "stageFiles" },
+          false
+        );
+      }
+
+      await withTimeout(
+        this.git.add(this.requireValidPaths(files, "stageFiles")),
+        calculateGitTimeout(timeoutOptions ?? {})
+      );
+      this.statusSnapshot = undefined;
+    });
 
   unstageFiles = async (
     files: string[],
-    timeoutOptions?: Omit<TimeoutCalculationOptions, "operationType">
-  ): Promise<void> => {
-    return withErrorHandling(
-      async () => {
-        const validatedFiles = files.map(file => {
-          const validation = validateAndSanitizePath(file, this.repositoryPath);
-          if (!validation.isValid || !validation.sanitizedValue) {
-            throw new SecureError(
-              validation.error ?? `Invalid file path: ${file}`,
-              ErrorType.SECURITY_ERROR,
-              { operation: "unstageFiles", file },
-              false
-            );
-          }
-          return validation.sanitizedValue;
-        });
-        if (validatedFiles.length === 0) return;
-        await withTimeout(
-          this.git.reset(["--", ...validatedFiles]),
-          calculateGitTimeout(timeoutOptions ?? {})
-        );
-        this.cache.clear();
-      },
-      { operation: "unstageFiles" }
-    );
-  };
+    timeoutOptions?: GitTimeoutOptions
+  ): Promise<void> =>
+    this.run("unstageFiles", async () => {
+      const validatedFiles = this.requireValidPaths(files, "unstageFiles");
+      if (validatedFiles.length === 0) return;
+      await withTimeout(
+        this.git.reset(["--", ...validatedFiles]),
+        calculateGitTimeout(timeoutOptions ?? {})
+      );
+      this.statusSnapshot = undefined;
+    });
 
   assertCleanIndexForBatch = async (): Promise<void> => {
-    const status = await this.getRawStatus(true);
+    const status = await this.getRawStatus();
     if (status.staged.length > 0) {
       throw new SecureError(
         "Intelligent multi-commit mode requires an empty Git index. Commit or unstage existing staged changes first.",
@@ -377,62 +245,33 @@ export class GitService {
 
   commit = async (
     message: string,
-    timeoutOptions?: Omit<TimeoutCalculationOptions, "operationType">
-  ): Promise<void> => {
-    return withErrorHandling(
-      async () => {
-        const messageValidation = validateCommitMessage(message);
-        if (!messageValidation.isValid || !messageValidation.sanitizedValue) {
-          throw new SecureError(
-            messageValidation.error ?? "Invalid commit message",
-            ErrorType.VALIDATION_ERROR,
-            { operation: "commit" },
-            true
-          );
-        }
-        await withTimeout(
-          this.git.commit(messageValidation.sanitizedValue),
-          calculateGitTimeout(timeoutOptions ?? {})
+    timeoutOptions?: GitTimeoutOptions
+  ): Promise<void> =>
+    this.run("commit", async () => {
+      const messageValidation = validateCommitMessage(message);
+      if (!messageValidation.isValid || !messageValidation.sanitizedValue) {
+        throw new SecureError(
+          messageValidation.error ?? "Invalid commit message",
+          ErrorType.VALIDATION_ERROR,
+          { operation: "commit" },
+          true
         );
-        this.cache.clear();
-      },
-      { operation: "commit" }
-    );
-  };
+      }
+      const result = await withTimeout(
+        this.git.commit(messageValidation.sanitizedValue),
+        calculateGitTimeout(timeoutOptions ?? {})
+      );
+      this.statusSnapshot = undefined;
 
-  getLastCommitMessage = async (): Promise<string | null> => {
-    try {
-      const log = await this.git.log({ maxCount: 1 });
-      return log.latest?.message ?? null;
-    } catch {
-      return null;
-    }
-  };
-
-  getRepoInfo = async (): Promise<RepoInfo> => {
-    const cached = this.cache.getRepoInfo();
-    if (cached) return cached;
-
-    const status = await this.getRawStatus();
-    const repoName = basename(this.repositoryPath) || "unknown";
-    const result: RepoInfo = {
-      name: repoName,
-      branch: status.current ?? "detached HEAD",
-    };
-    this.cache.setRepoInfo(result);
-    return result;
-  };
-
-  private readonly getFileStatus = (diff: GitDiff): string => {
-    switch (true) {
-      case diff.isNew:
-        return UI_CONSTANTS.FILE_STATUS.NEW;
-      case diff.isDeleted:
-        return UI_CONSTANTS.FILE_STATUS.DELETED;
-      case diff.isRenamed:
-        return UI_CONSTANTS.FILE_STATUS.RENAMED;
-      default:
-        return UI_CONSTANTS.FILE_STATUS.MODIFIED;
-    }
-  };
+      // A hook that exits non-zero without writing to stderr is reported by
+      // simple-git as success, with no commit hash.
+      if (!result.commit) {
+        throw new SecureError(
+          "Git did not create a commit; a hook may have rejected it.",
+          ErrorType.GIT_ERROR,
+          { operation: "commit" },
+          true
+        );
+      }
+    });
 }
