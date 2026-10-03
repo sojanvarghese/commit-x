@@ -117,15 +117,6 @@ current file set exactly.
   rejected
 - **Configuration values**: Authentication is environment-only
 
-## Privacy Command
-
-Use `cx privacy` to view detailed information about:
-
-- What data is sent to the AI service
-- Privacy protections in place
-- Sensitive file types that are automatically skipped
-- Data handling practices
-
 ## Security Best Practices
 
 1. **Defense in Depth**: Multiple layers of validation and security checks
