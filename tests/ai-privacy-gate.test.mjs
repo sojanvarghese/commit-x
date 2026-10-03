@@ -90,35 +90,69 @@ test("sensitive content detection is stable across repeated calls (C2)", async (
   );
 });
 
-test("sensitive file patterns detected for each file in a batch (C2)", async () => {
+test("redaction applies to every file in a batch (C2)", async () => {
   const { enforcePrivacyGate } = await loadGate();
 
   // The /g regex state leak showed up when the same pattern was applied
   // back-to-back inside sanitizeDiffContent. If lastIndex isn't reset,
-  // alternate files slip through un-flagged.
-  const diffs = [
-    diff("a.ts", "see .env for config"),
-    diff("b.ts", "see .env for config"),
-    diff("c.ts", "see .env for config"),
-    diff("d.ts", "see .env for config"),
-  ];
+  // alternate files slip through un-redacted.
+  const diffs = ["a.ts", "b.ts", "c.ts", "d.ts"].map(file =>
+    diff(file, '+const owner = "person@example.com";')
+  );
   const result = enforcePrivacyGate(diffs, "/repo");
 
-  const warnedCount = result.approvedDiffs.filter(() =>
-    (result.report.warnings ?? []).some(() => true)
-  ).length;
-  assert.ok(warnedCount >= 0);
-
-  assert.equal(
-    result.approvedDiffs.length,
-    diffs.length,
-    "regular-named files with only string references should not be blocked"
-  );
-  const allSanitized = result.sanitizedDiffs.every(d =>
-    d.changes.includes("[SENSITIVE_FILE]")
-  );
+  assert.equal(result.approvedDiffs.length, diffs.length);
   assert.ok(
-    allSanitized,
-    "every diff must have its `.env` mention redacted — regex state must not leak"
+    result.sanitizedDiffs.every(
+      d =>
+        d.changes.includes("[REDACTED]") &&
+        !d.changes.includes("person@example.com")
+    ),
+    "every diff must have its email redacted — regex state must not leak"
   );
+});
+
+test("code that merely resembles a sensitive filename reaches the model intact", async () => {
+  const { enforcePrivacyGate } = await loadGate();
+  const changes = [
+    "+const url = process.env.API_URL;",
+    "+for (const k of Object.keys(map)) handle(event.key, k);",
+    '+import cfg from "./tsconfig.json";',
+  ].join("\n");
+
+  const result = enforcePrivacyGate([diff("src/a.ts", changes)], "/repo");
+
+  assert.equal(result.sanitizedDiffs[0].changes, changes);
+  assert.equal(result.report.sanitizedFiles, 0);
+});
+
+test("epoch timestamps are not mistaken for payment card numbers", async () => {
+  const { enforcePrivacyGate } = await loadGate();
+  const changes = "+const startedAt = 1719432000000;";
+
+  const result = enforcePrivacyGate([diff("src/a.ts", changes)], "/repo");
+
+  assert.equal(result.sanitizedDiffs[0].changes, changes);
+});
+
+test("checksum-valid payment card numbers are still redacted", async () => {
+  const { enforcePrivacyGate } = await loadGate();
+
+  const result = enforcePrivacyGate(
+    [diff("src/a.ts", '+const card = "4111 1111 1111 1111";')],
+    "/repo"
+  );
+
+  assert.equal(result.sanitizedDiffs[0].changes, '+const card = "[REDACTED]";');
+});
+
+test("a long unbroken token is sanitized in linear time", async () => {
+  const { enforcePrivacyGate } = await loadGate();
+  const token = `+${"a1B2c3D4e5".repeat(5_000)}`;
+
+  const start = performance.now();
+  enforcePrivacyGate([diff("src/blob.ts", token)], "/repo");
+  const elapsed = performance.now() - start;
+
+  assert.ok(elapsed < 300, `sanitizing 50KB took ${elapsed.toFixed(0)}ms`);
 });
