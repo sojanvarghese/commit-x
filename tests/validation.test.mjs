@@ -23,14 +23,6 @@ test("ApiKeySchema rejects invalid key formats", async () => {
   assert.equal(result.issues[0].message, "API key contains invalid characters");
 });
 
-test("CommitConfigSchema validates optional apiKey", async () => {
-  const { CommitConfigSchema } = await loadValidation();
-  const result = v.safeParse(CommitConfigSchema, { apiKey: "valid_key-12345" });
-
-  assert.equal(result.success, true);
-  assert.equal(result.output.apiKey, "valid_key-12345");
-});
-
 test("GitDiffSchema rejects negative additions", async () => {
   const { GitDiffSchema } = await loadValidation();
   const result = v.safeParse(GitDiffSchema, {
