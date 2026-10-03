@@ -1,97 +1,37 @@
 #!/usr/bin/env node
 
-const startupStart = performance.now();
-
 import { Command } from "commander";
 import process from "node:process";
-import { lightColors } from "./utils/colors.js";
-import { lazyModules } from "./utils/lazy-loader.js";
-import { PERFORMANCE_FLAGS } from "./constants/performance.js";
-import { registerCommitCommand } from "./cli/commands/commit.js";
-import { registerStatusCommand } from "./cli/commands/status.js";
-import { registerDiffCommand } from "./cli/commands/diff.js";
-import { registerConfigCommand } from "./cli/commands/config.js";
-import { registerSetupCommand } from "./cli/commands/setup.js";
-import { registerPrivacyCommand } from "./cli/commands/privacy.js";
-import { registerHelpExamplesCommand } from "./cli/commands/help-examples.js";
-import { registerDebugCommand } from "./cli/commands/debug.js";
+import type { CommitOptions } from "./types/common.js";
 
-if (PERFORMANCE_FLAGS.ENABLE_PERFORMANCE_MONITORING) {
-  process.nextTick(() => {
-    const startupTime = performance.now() - startupStart;
-    if (startupTime > 200) {
-      console.log(`🚀 Startup time: ${startupTime.toFixed(2)}ms`);
-    }
-  });
-}
+// Failures from anywhere below surface here and are reported once.
+const runCommit = async (options: CommitOptions = {}): Promise<void> => {
+  try {
+    const { CommitX } = await import("./core/commitx.js");
+    await new CommitX().commit(options);
+  } catch (error) {
+    const { reportError } = await import("./utils/error-handler.js");
+    reportError(error, { operation: "commit" });
+  }
+};
 
 const program = new Command();
 
 program
   .name("cx")
   .description("🚀 AI-powered Git commit assistant")
-  .version(__COMMIT_X_VERSION__);
+  .version(__COMMIT_X_VERSION__)
+  .action(() => runCommit());
 
-registerCommitCommand(program);
-registerStatusCommand(program);
-registerDiffCommand(program);
-registerConfigCommand(program);
-registerSetupCommand(program);
-registerPrivacyCommand(program);
-registerHelpExamplesCommand(program);
-registerDebugCommand(program);
+program
+  .command("commit")
+  .alias("c")
+  .description("Generate and create AI-powered commit messages")
+  .option(
+    "-d, --dry-run",
+    "Show what would be committed without actually committing"
+  )
+  .option("--use-cached", "Reuse cached AI results (fresh by default)", false)
+  .action((options: CommitOptions) => runCommit(options));
 
-const runDefaultCommit = async (): Promise<void> => {
-  try {
-    const { withPerformanceTracking } = await import("./utils/performance.js");
-    await withPerformanceTracking("default-commit", async () => {
-      const { CommitX } = await lazyModules.commitX();
-      const commitX = new CommitX();
-      await commitX.commit();
-    });
-  } catch (error) {
-    const { handleErrorImmediate } = await import("./utils/process-utils.js");
-    handleErrorImmediate(error);
-  }
-};
-
-program.action(runDefaultCommit);
-
-program.on("command:*", async (): Promise<void> => {
-  console.error(
-    lightColors.red(`❌ Unknown command: ${program.args.join(" ")}`)
-  );
-  console.log(`${lightColors.yellow("\n💡 Available commands:")}
-${lightColors.blue("  cx --help              # Show all available commands")}
-${lightColors.blue("  cx commit --help       # Show commit command options")}
-${lightColors.blue("  cx help-examples       # Show usage examples")}
-${lightColors.gray("\nFor more information, visit: https://github.com/sojanvarghese/commit-x")}`);
-  process.exitCode = 1;
-});
-
-program.on("option:*", async (): Promise<void> => {
-  console.error(
-    lightColors.red(`❌ Unknown option: ${program.args.join(" ")}`)
-  );
-  console.log(`${lightColors.yellow("\n💡 Available options:")}
-${lightColors.blue("  cx --help              # Show all available commands")}
-${lightColors.blue("  cx commit --help       # Show commit command options")}
-${lightColors.gray("\nFor more information, visit: https://github.com/sojanvarghese/commit-x")}`);
-  process.exitCode = 1;
-});
-
-if (PERFORMANCE_FLAGS.ENABLE_PERFORMANCE_MONITORING) {
-  process.on("exit", async () => {
-    try {
-      const { PerformanceMonitor } = await import("./utils/performance.js");
-      const monitor = PerformanceMonitor.getInstance();
-      monitor.logMetrics();
-    } catch {
-      /* empty */
-    }
-  });
-}
-
-// Commander invokes `program.action(runDefaultCommit)` when no subcommand is
-// given, so parse unconditionally — no need to branch on argv length.
 program.parse(process.argv);
