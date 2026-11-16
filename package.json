@@ -1,10 +1,9 @@
 {
   "name": "@sojanvarghese/commit-x",
+  "private": true,
   "version": "4.1.0",
   "license": "MIT",
   "packageManager": "yarn@4.18.1",
-  "author": "Sojan Varghese (https://github.com/sojanvarghese)",
-  "homepage": "https://github.com/sojanvarghese/commit-x#readme",
   "description": "AI-powered Git commit assistant that intelligently analyzes your code changes and generates clear, concise, and context-aware commit messages",
   "type": "module",
   "main": "dist/index.js",
@@ -15,69 +14,34 @@
   "bin": {
     "cx": "dist/cli.js"
   },
-  "keywords": [
-    "git",
-    "commit",
-    "ai",
-    "gemini",
-    "cli",
-    "typescript",
-    "automation"
-  ],
-  "bugs": {
-    "url": "https://github.com/sojanvarghese/commit-x/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/sojanvarghese/commit-x.git"
-  },
-  "files": [
-    "dist/**/*",
-    "README.md",
-    "SECURITY.md",
-    "LICENSE",
-    "package.json"
-  ],
   "scripts": {
     "build": "yarn typecheck && tsup",
     "build:watch": "tsup --watch",
     "dev": "yarn build && node --enable-source-maps dist/cli.js",
     "cx": "node dist/cli.js",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src tests",
-    "lint:fix": "eslint src tests --fix",
+    "lint": "oxlint src tests",
+    "lint:fix": "oxlint --fix src tests",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.mjs\" \"*.{js,json,md,mjs,ts}\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.mjs\" \"*.{js,json,md,mjs,ts}\"",
-    "check": "yarn typecheck && yarn lint && yarn format:check && yarn test",
+    "check": "yarn lint && yarn format:check && yarn test",
     "test": "yarn build && node --test tests/*.test.mjs",
     "clean": "rm -rf dist",
-    "prepack": "yarn build",
     "commit": "yarn cx commit",
     "commit:dry": "yarn cx commit --dry-run"
   },
   "dependencies": {
-    "@google/genai": "2.26.0",
-    "commander": "15.0.0",
+    "@google/genai": "3.3.0",
+    "commander": "15.1.0",
     "simple-git": "4.0.2",
     "valibot": "1.5.0"
   },
   "devDependencies": {
-    "@eslint/js": "10.0.1",
     "@types/node": "24.13.3",
-    "@typescript-eslint/eslint-plugin": "8.71.0",
-    "@typescript-eslint/parser": "8.71.0",
-    "eslint": "10.12.0",
-    "eslint-plugin-unused-imports": "4.4.1",
-    "globals": "17.13.0",
+    "oxlint": "1.93.0",
+    "oxlint-tsgolint": "7.0.2007",
     "prettier": "3.9.9",
     "tsup": "8.5.1",
-    "typescript": "6.0.3"
-  },
-  "engines": {
-    "node": ">=24.0.0",
-    "yarn": ">=4.0.0"
-  },
-  "publishConfig": {
-    "access": "public"
+    "typescript": "7.0.2"
   }
 }
