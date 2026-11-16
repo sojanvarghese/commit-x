@@ -7,11 +7,26 @@ import {
 
 interface SensitivePattern {
   pattern: RegExp;
+  // Non-global copy so a presence check cannot move `pattern.lastIndex`.
+  detect: RegExp;
   label: string;
   blockFile: boolean;
   // Narrows a regex hit before it is redacted.
   confirm?: (match: string) => boolean;
 }
+
+const sensitivePattern = (
+  pattern: RegExp,
+  label: string,
+  blockFile: boolean,
+  confirm?: (match: string) => boolean
+): SensitivePattern => ({
+  pattern,
+  detect: new RegExp(pattern.source, pattern.flags.replaceAll("g", "")),
+  label,
+  blockFile,
+  ...(confirm === undefined ? {} : { confirm }),
+});
 
 const passesLuhnCheck = (candidate: string): boolean => {
   const digits = candidate.replace(/\D/g, "");
@@ -28,74 +43,59 @@ const passesLuhnCheck = (candidate: string): boolean => {
 };
 
 const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
-  {
-    pattern:
-      /(api[_-]?key|access[_-]?token|auth[_-]?token|secret|password|pwd)\s*[:=]\s*['"]?[a-zA-Z0-9+/_.=-]{16,}['"]?/gi,
-    label: "credential assignment",
-    blockFile: true,
-  },
-  {
-    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g,
-    label: "Google API key",
-    blockFile: true,
-  },
-  {
-    pattern:
-      /\b(?:gh[opusr]_[A-Za-z0-9_]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g,
-    label: "GitHub token",
-    blockFile: true,
-  },
-  {
-    pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
-    label: "Slack token",
-    blockFile: true,
-  },
-  {
-    pattern: /https?:\/\/[^:\s]+:[^@\s]+@[^\s]+/g,
-    label: "URL credentials",
-    blockFile: true,
-  },
-  {
-    pattern: /\b(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis):\/\/[^\s]+/gi,
-    label: "database connection string",
-    blockFile: true,
-  },
-  {
-    pattern: /\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g,
-    label: "JWT",
-    blockFile: true,
-  },
-  {
-    pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
-    label: "AWS access key",
-    blockFile: true,
-  },
-  {
-    pattern:
-      /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g,
-    label: "private key",
-    blockFile: true,
-  },
-  {
-    // The local part is bounded: unbounded, it rescans a long token from every
-    // start position when no "@" follows, which is quadratic.
-    pattern: /[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-    label: "email address",
-    blockFile: false,
-  },
-  {
-    pattern: /\b\d{3}-\d{2}-\d{4}\b/g,
-    label: "US social security number",
-    blockFile: false,
-  },
-  {
-    pattern: /\b(?:\d[ -]*?){13,19}\b/g,
-    label: "possible payment card number",
-    blockFile: false,
-    // Timestamps and numeric IDs are 13-19 digits too; the checksum tells
-    // them apart from card numbers.
-    confirm: passesLuhnCheck,
-  },
+  sensitivePattern(
+    /(api[_-]?key|access[_-]?token|auth[_-]?token|secret|password|pwd)\s*[:=]\s*['"]?[a-zA-Z0-9+/_.=-]{16,}['"]?/gi,
+    "credential assignment",
+    true
+  ),
+  sensitivePattern(/\bAIza[0-9A-Za-z_-]{35}\b/g, "Google API key", true),
+  sensitivePattern(
+    /\b(?:gh[opusr]_[A-Za-z0-9_]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g,
+    "GitHub token",
+    true
+  ),
+  sensitivePattern(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "Slack token", true),
+  sensitivePattern(
+    /https?:\/\/[^:\s]+:[^@\s]+@[^\s]+/g,
+    "URL credentials",
+    true
+  ),
+  sensitivePattern(
+    /\b(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis):\/\/[^\s]+/gi,
+    "database connection string",
+    true
+  ),
+  sensitivePattern(
+    /\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g,
+    "JWT",
+    true
+  ),
+  sensitivePattern(/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, "AWS access key", true),
+  sensitivePattern(
+    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g,
+    "private key",
+    true
+  ),
+  // The local part is bounded: unbounded, it rescans a long token from every
+  // start position when no "@" follows, which is quadratic.
+  sensitivePattern(
+    /[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+    "email address",
+    false
+  ),
+  sensitivePattern(
+    /\b\d{3}-\d{2}-\d{4}\b/g,
+    "US social security number",
+    false
+  ),
+  // Timestamps and numeric IDs are 13-19 digits too; the checksum tells
+  // them apart from card numbers.
+  sensitivePattern(
+    /\b(?:\d[ -]*?){13,19}\b/g,
+    "possible payment card number",
+    false,
+    passesLuhnCheck
+  ),
 ];
 
 export interface SanitizedDiff {
@@ -148,9 +148,19 @@ export const sanitizeDiffContent = (
 
   // Git patch headers repeat repository paths. The model receives opaque file
   // IDs, so these transport-level paths add tokens without useful semantics.
-  sanitized = sanitized
-    .replace(/^diff --git .+$/gm, "diff --git [PATHS OMITTED]")
-    .replace(/^(---|\+\+\+|rename from|rename to) .+$/gm, "$1 [PATH OMITTED]");
+  if (sanitized.startsWith("diff --git ")) {
+    const hunk = sanitized.indexOf("\n@@ ");
+    const metadata = hunk < 0 ? sanitized : sanitized.slice(0, hunk);
+    sanitized =
+      metadata
+        .replace(/^diff --git .+$/gm, "diff --git [PATHS OMITTED]")
+        .replace(
+          /^(---|\+\+\+|rename from|rename to|copy from|copy to) .+$/gm,
+          "$1 [PATH OMITTED]"
+        )
+        .replace(/^Binary files .+ differ$/gm, "Binary content changed") +
+      (hunk < 0 ? "" : sanitized.slice(hunk));
+  }
 
   return { sanitized, warnings };
 };
@@ -200,22 +210,21 @@ export const shouldSkipFileForAI = (
   if (
     fileName === ".env" ||
     fileName.startsWith(".env.") ||
-    SENSITIVE_EXTENSIONS.includes(ext)
+    SENSITIVE_EXTENSIONS.has(ext)
   ) {
     return { skip: true, reason: "Sensitive file type" };
   }
 
   // Skip specific sensitive JSON files, but allow standard config files
-  if (ext === ".json" && SENSITIVE_JSON_FILES.includes(fileName)) {
+  if (ext === ".json" && SENSITIVE_JSON_FILES.has(fileName)) {
     return { skip: true, reason: "Sensitive file type" };
   }
 
   // High-confidence credentials block the whole file. Personal identifiers
   // are redacted instead, avoiding false-positive file drops.
-  for (const { pattern, blockFile } of SENSITIVE_PATTERNS) {
+  for (const { detect, blockFile } of SENSITIVE_PATTERNS) {
     if (!blockFile) continue;
-    pattern.lastIndex = 0;
-    if (pattern.test(content)) {
+    if (detect.test(content)) {
       return { skip: true, reason: "Contains potential sensitive data" };
     }
   }
@@ -224,7 +233,7 @@ export const shouldSkipFileForAI = (
   const pathParts = filePath.toLowerCase().split("/");
 
   for (const part of pathParts) {
-    if (SENSITIVE_DIRECTORIES.includes(part)) {
+    if (SENSITIVE_DIRECTORIES.has(part)) {
       return { skip: true, reason: "Located in sensitive directory" };
     }
   }
@@ -232,13 +241,15 @@ export const shouldSkipFileForAI = (
   return { skip: false };
 };
 
-export const createPrivacyReport = (
-  sanitizedDiffs: SanitizedDiff[]
-): {
+export interface PrivacyReport {
   totalFiles: number;
   sanitizedFiles: number;
   warnings: string[];
-} => {
+}
+
+export const createPrivacyReport = (
+  sanitizedDiffs: SanitizedDiff[]
+): PrivacyReport => {
   const sanitizedFiles = sanitizedDiffs.filter(diff => diff.sanitized).length;
   const allWarnings = sanitizedDiffs.flatMap(diff => diff.warnings);
 

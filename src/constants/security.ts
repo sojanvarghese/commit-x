@@ -12,18 +12,25 @@ export const SUSPICIOUS_PATTERNS = [
 ];
 
 export const SUSPICIOUS_COMMIT_PATTERNS = [
-  // eslint-disable-next-line no-control-regex
-  /[\u0000-\u001f\u007f-\u009f]/, // Terminal/control characters
+  // oxlint-disable-next-line no-control-regex -- commit subjects must reject terminal controls
+  /[\u0000-\u001f\u007f-\u009f]/,
 ];
 
 // Sensitive file patterns for data sanitization
-export const SENSITIVE_EXTENSIONS = [
+export const SENSITIVE_EXTENSIONS: ReadonlySet<string> = new Set([
   ".env",
   ".key",
   ".pem",
   ".p12",
   ".pfx",
   ".p8",
-];
-export const SENSITIVE_JSON_FILES = ["secrets.json", "credentials.json"];
-export const SENSITIVE_DIRECTORIES = ["secrets", "keys", "credentials"];
+]);
+export const SENSITIVE_JSON_FILES: ReadonlySet<string> = new Set([
+  "secrets.json",
+  "credentials.json",
+]);
+export const SENSITIVE_DIRECTORIES: ReadonlySet<string> = new Set([
+  "secrets",
+  "keys",
+  "credentials",
+]);

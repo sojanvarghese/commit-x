@@ -4,6 +4,7 @@ import {
   sanitizeGitDiff,
   shouldSkipFileForAI,
   createPrivacyReport,
+  type PrivacyReport,
   type SanitizedDiff,
 } from "../utils/data-sanitization.js";
 import { GitDiffSchema } from "../schemas/validation.js";
@@ -13,11 +14,7 @@ export interface SkippedFile {
   reason: string;
 }
 
-export interface PrivacyReport {
-  totalFiles: number;
-  sanitizedFiles: number;
-  warnings: string[];
-}
+export type { PrivacyReport };
 
 export interface PrivacyGateResult {
   approvedDiffs: GitDiff[];
