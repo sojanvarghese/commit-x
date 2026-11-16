@@ -20,11 +20,10 @@ const program = new Command();
 program
   .name("cx")
   .description("🚀 AI-powered Git commit assistant")
-  .version(__COMMIT_X_VERSION__)
-  .action(() => runCommit());
+  .version(__COMMIT_X_VERSION__);
 
 program
-  .command("commit")
+  .command("commit", { isDefault: true })
   .alias("c")
   .description("Generate and create AI-powered commit messages")
   .option(
@@ -34,4 +33,4 @@ program
   .option("--use-cached", "Reuse cached AI results (fresh by default)", false)
   .action((options: CommitOptions) => runCommit(options));
 
-program.parse(process.argv);
+await program.parseAsync(process.argv);

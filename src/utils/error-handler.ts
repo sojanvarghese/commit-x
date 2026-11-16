@@ -1,9 +1,5 @@
 import { lightColors } from "./colors.js";
 import { sanitizeError } from "./security.js";
-import {
-  DEFAULT_RETRY_ATTEMPTS,
-  DEFAULT_RETRY_DELAY_MS,
-} from "../constants/error-handler.js";
 import { ErrorType, type ErrorContext } from "../types/error-handler.js";
 
 const assertNever = (value: never): never => {
@@ -188,8 +184,8 @@ export const withErrorHandling = async <T>(
 
 export const withRetry = async <T>(
   operation: () => Promise<T>,
-  maxRetries: number = DEFAULT_RETRY_ATTEMPTS,
-  baseDelay: number = DEFAULT_RETRY_DELAY_MS,
+  maxRetries: number,
+  baseDelay: number,
   context: ErrorContext = {}
 ): Promise<T> => {
   let lastError: SecureError | undefined;

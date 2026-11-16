@@ -101,6 +101,8 @@ export const withTimeout = <T>(
     typeof operation === "function" ? operation(controller.signal) : operation;
 
   const timeout = new Promise<never>((_, reject) => {
+    // Stay referenced until `finally` clears the timer. Unref would let an
+    // idle process exit before this abort can fire.
     timer = setTimeout(() => {
       const error = new Error(`Operation timed out after ${timeoutMs}ms`);
       error.name = "TimeoutError";
