@@ -1,0 +1,55 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "env": {
+    "node": true,
+    "es2025": true
+  },
+  "globals": {
+    "__COMMIT_X_VERSION__": "readonly"
+  },
+  "ignorePatterns": ["dist/**", "node_modules/**"],
+  "options": {
+    "typeAware": true
+  },
+  "rules": {
+    "typescript/no-floating-promises": "warn",
+    "typescript/no-explicit-any": "error",
+    "typescript/consistent-type-imports": "warn",
+    "typescript/prefer-nullish-coalescing": "warn",
+    "typescript/prefer-optional-chain": "warn",
+    "eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }
+    ],
+    "typescript/explicit-function-return-type": "error",
+    "typescript/explicit-module-boundary-types": "warn",
+    "typescript/no-empty-function": "error",
+    "typescript/prefer-as-const": "error",
+    "typescript/prefer-readonly": "error",
+    "typescript/prefer-function-type": "error",
+    "typescript/no-unnecessary-type-assertion": "warn",
+    "typescript/no-non-null-assertion": "warn",
+    "typescript/prefer-string-starts-ends-with": "warn",
+    "typescript/prefer-includes": "warn",
+    "eslint/prefer-const": "error",
+    "eslint/no-var": "error",
+    "eslint/prefer-template": "error",
+    "eslint/prefer-arrow-callback": "error",
+    "eslint/no-duplicate-imports": "error",
+    "typescript/restrict-template-expressions": "off",
+    "typescript/no-misused-spread": "off",
+    "unicorn/no-new-array": "off"
+  },
+  "overrides": [
+    {
+      "files": ["tests/**/*.mjs"],
+      "rules": {
+        "eslint/no-empty-function": "off",
+        "eslint/prefer-template": "off",
+        "typescript/no-floating-promises": "off",
+        "typescript/explicit-function-return-type": "off",
+        "typescript/explicit-module-boundary-types": "off"
+      }
+    }
+  ]
+}

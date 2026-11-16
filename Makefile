@@ -11,7 +11,7 @@ help:
 	@echo "  clean     - Remove build artifacts"
 	@echo "  dev       - Run in development mode"
 	@echo "  test      - Run tests"
-	@echo "  lint      - Run ESLint"
+	@echo "  lint      - Run Oxlint"
 	@echo "  format    - Format code with Prettier"
 	@echo "  typecheck - Check TypeScript without emitting"
 	@echo "  check     - Run all verification"
@@ -41,7 +41,7 @@ dev:
 
 # Run linter
 lint:
-	@echo "🔍 Running ESLint..."
+	@echo "🔍 Running Oxlint..."
 	yarn lint
 
 # Format code
