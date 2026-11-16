@@ -1,7 +1,7 @@
 [![License](https://badgen.net/badge/license/MIT/blue)](https://opensource.org/licenses/MIT)
 [![Node.js](https://badgen.net/badge/node/24.0.0+/green)](https://nodejs.org/)
-[![TypeScript](https://badgen.net/badge/TypeScript/6.0.3/blue)](https://www.typescriptlang.org/)
-[![Yarn](https://badgen.net/badge/yarn/4.13.0+/blue)](https://yarnpkg.com/)
+[![TypeScript](https://badgen.net/badge/TypeScript/7.0.2/blue)](https://www.typescriptlang.org/)
+[![Yarn](https://badgen.net/badge/yarn/4.18.1+/blue)](https://yarnpkg.com/)
 [![AI](https://badgen.net/badge/AI/Gemini/4285F4)](https://ai.google.dev/)
 [![CLI](https://badgen.net/badge/CLI/Tool/green)](https://en.wikipedia.org/wiki/Command-line_interface)
 
@@ -65,28 +65,32 @@ export GEMINI_API_KEY="your_api_key_here"
 cx
 
 # Preview the AI commit plan without committing
-cx commit --dry-run
+cx --dry-run
 
 # Reuse cached AI grouping from a previous run (default is always fresh)
-cx commit --use-cached
+cx --use-cached
 ```
 
 ## 📖 Commands
 
-| Command                  | Description                                                  |
-| ------------------------ | ------------------------------------------------------------ |
-| `cx`                     | AI groups **unstaged** changes into multiple logical commits |
-| `cx commit --dry-run`    | Show the AI commit plan without running `git commit`         |
-| `cx commit --use-cached` | Reuse on-disk cached AI results (off by default)             |
+| Command           | Description                                                  |
+| ----------------- | ------------------------------------------------------------ |
+| `cx`              | AI groups **unstaged** changes into multiple logical commits |
+| `cx --dry-run`    | Show the AI commit plan without running `git commit`         |
+| `cx --use-cached` | Reuse on-disk cached AI results (off by default)             |
+
+`commit` is the default command, so `cx --dry-run` and `cx commit --dry-run` are
+the same. `cx c` is the short alias.
 
 ## ⚙️ Configuration
 
 Use the **`GEMINI_API_KEY`** environment variable for Gemini authentication.
 Commit-X does not persist API keys.
 
-The model chain is chosen in code: `gemini-3.5-flash-lite` first for low latency
-and cost, then `gemini-3.6-flash` if the primary model fails. Requests use JSON
-Schema output, minimal thinking, bounded retries, and an abort signal.
+The model chain is chosen in code: `gemini-3.5-flash-lite` first, then
+`gemini-3.6-flash` if the primary model fails. Requests use JSON Schema output,
+low thinking (the lowest level both models accept), bounded retries, and an
+abort signal.
 
 ### Privacy and cache behavior
 
