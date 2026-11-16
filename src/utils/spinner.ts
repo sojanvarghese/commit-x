@@ -15,7 +15,7 @@ export class LightSpinner {
   private readonly color: string;
   private readonly interval: number;
   private readonly stream: typeof process.stderr;
-  private frames: string[];
+  private readonly frames: readonly string[];
   private isSpinning = false;
   private currentFrame = 0;
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -118,32 +118,6 @@ export class LightSpinner {
     return this;
   }
 
-  warn(text?: string): this {
-    this.stop();
-    const message = text ?? this.text;
-    if (message) {
-      this.stream.write(`${lightColors.yellow("⚠")} ${message}\n`);
-    }
-    return this;
-  }
-
-  info(text?: string): this {
-    this.stop();
-    const message = text ?? this.text;
-    if (message) {
-      this.stream.write(`${lightColors.blue("ℹ")} ${message}\n`);
-    }
-    return this;
-  }
-
-  get isRunning(): boolean {
-    return this.isSpinning;
-  }
-
-  set spinner(frames: string[]) {
-    this.frames = frames;
-  }
-
   set message(text: string) {
     this.text = text;
   }
@@ -183,5 +157,3 @@ export const lightSpinner = (
 ): LightSpinner => {
   return new LightSpinner(options);
 };
-
-export default lightSpinner;
