@@ -13,10 +13,7 @@ export enum ErrorType {
 export interface ErrorContext {
   operation?: string;
   file?: string;
-  userId?: string;
   timestamp?: Date;
-  key?: string;
   attempt?: number;
   maxRetries?: number;
-  additionalInfo?: Record<string, unknown>;
 }
