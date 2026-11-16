@@ -1,21 +1,22 @@
+import { countChanges, patchBody } from "./diff-lines.js";
 import type { SanitizedDiff } from "./data-sanitization.js";
 import type { GitDiff } from "../types/common.js";
 
 export const DIFF_LOC_AGGRESSIVE_THRESHOLD = 250;
 
+const BLANK_LINE = /^\s*$/;
+const DIFF_MARKER = /^[+-]\s*/;
+const IMPORT_OR_EXPORT = /^(import\s.+|export\s+(?:\*|\{).*from\s.+);?\s*$/;
+const LINE_COMMENT = /^\/\/.*$/;
+const BLOCK_COMMENT = /^\s*(\*|\/\*\*|\/\*|\*\/)/;
+const CONSOLE_CALL = /^console\.(log|debug|info)\(/;
+const NUMBER_RUN = /[0-9]+/g;
+const DOUBLE_QUOTED = /"[^"]*"/g;
+const SINGLE_QUOTED = /'[^']*'/g;
+
 export const countDiffLines = (content: string): number => {
-  if (!content) return 0;
-  let count = 0;
-  for (const line of content.split("\n")) {
-    if (
-      (line.startsWith("+") || line.startsWith("-")) &&
-      !line.startsWith("+++") &&
-      !line.startsWith("---")
-    ) {
-      count++;
-    }
-  }
-  return count;
+  const { additions, deletions } = countChanges(patchBody(content.split("\n")));
+  return additions + deletions;
 };
 
 export const shouldAggressivelyMinimize = (diff: {
@@ -23,70 +24,67 @@ export const shouldAggressivelyMinimize = (diff: {
 }): boolean =>
   countDiffLines(diff.changes ?? "") > DIFF_LOC_AGGRESSIVE_THRESHOLD;
 
+const normalizeLines = (content: string): string[] => {
+  if (!content) return [];
+  const lines: string[] = [];
+  for (const raw of content.split("\n")) {
+    if (BLANK_LINE.test(raw)) {
+      if (lines.length && lines.at(-1) !== "") lines.push("");
+    } else {
+      lines.push(raw.trimEnd());
+    }
+  }
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+};
+
+const joinLines = (lines: readonly string[]): string => lines.join("\n");
+
 export const normalizeDiffWhitespace = (content: string): string =>
-  content
-    .split("\n")
-    .map(line => line.trimEnd())
-    .join("\n")
-    .replace(/\n\s*\n\s*\n+/g, "\n\n")
-    .trim();
+  joinLines(normalizeLines(content));
+
+const keepSignificantLines = (lines: readonly string[]): string[] =>
+  lines.filter(
+    line =>
+      line.startsWith("+") || line.startsWith("-") || line.startsWith("@@")
+  );
 
 export const keepSignificantDiffLines = (content: string): string =>
-  content
-    .split("\n")
-    .filter(
-      line =>
-        ((line.startsWith("+") || line.startsWith("-")) &&
-          !line.startsWith("+++") &&
-          !line.startsWith("---")) ||
-        line.startsWith("@@")
-    )
-    .join("\n")
-    .trim();
+  joinLines(keepSignificantLines(patchBody(content.split("\n")))).trim();
+
+const prioritizeAdditionLines = (lines: readonly string[]): string[] =>
+  lines.filter(line => line.startsWith("@@") || line.startsWith("+"));
 
 // Large diffs: additions describe the post-change state and carry intent;
 // deletions are context we can usually drop to make room for more files.
-// Keeps hunk headers + additions, strips deletion lines entirely.
 export const prioritizeAdditions = (content: string): string =>
-  content
-    .split("\n")
-    .filter(line => {
-      if (line.startsWith("@@")) return true;
-      if (line.startsWith("+++") || line.startsWith("---")) return false;
-      return line.startsWith("+");
-    })
-    .join("\n")
-    .trim();
+  joinLines(prioritizeAdditionLines(patchBody(content.split("\n")))).trim();
 
-export const stripBoilerplate = (content: string): string => {
-  const lines = content.split("\n");
+const stripBoilerplateLines = (lines: readonly string[]): string[] => {
   const filtered: string[] = [];
-
   for (const line of lines) {
-    const trimmed = line.replace(/^[+-]\s*/, "");
-
-    if (/^(import\s.+|export\s+(?:\*|\{).*from\s.+);?\s*$/.test(trimmed))
-      continue;
-    if (/^\/\/.*$/.test(trimmed)) continue;
-    if (/^\s*(\*|\/\*\*|\/\*|\*\/)/.test(trimmed)) continue;
-    if (/^console\.(log|debug|info)\(/.test(trimmed)) continue;
+    const trimmed = line.replace(DIFF_MARKER, "");
+    if (IMPORT_OR_EXPORT.test(trimmed)) continue;
+    if (LINE_COMMENT.test(trimmed)) continue;
+    if (BLOCK_COMMENT.test(trimmed)) continue;
+    if (CONSOLE_CALL.test(trimmed)) continue;
     if (trimmed.trim() === "") continue;
-
     filtered.push(line);
   }
-
-  return filtered.join("\n").trim();
+  return filtered;
 };
 
-export const collapseRepetitiveLines = (content: string): string => {
-  const lines = content.split("\n");
-  if (lines.length < 10) return content;
+export const stripBoilerplate = (content: string): string =>
+  joinLines(stripBoilerplateLines(content.split("\n"))).trim();
 
-  const normalizePattern = (line: string): string =>
-    line
-      .replace(/[0-9]+/g, "N")
-      .replace(/"[^"]*"/g, '"S"')
-      .replace(/'[^']*'/g, "'S'");
+const normalizePattern = (line: string): string =>
+  line
+    .replace(NUMBER_RUN, "N")
+    .replace(DOUBLE_QUOTED, '"S"')
+    .replace(SINGLE_QUOTED, "'S'");
+
+const collapseLines = (lines: readonly string[]): string[] => {
+  if (lines.length < 10) return [...lines];
 
   const flushRepeated = (result: string[], repeatedLines: string[]): void => {
     if (repeatedLines.length >= 6) {
@@ -100,7 +98,7 @@ export const collapseRepetitiveLines = (content: string): string => {
 
   const result: string[] = [];
   const firstLine = lines[0];
-  if (firstLine === undefined) return content;
+  if (firstLine === undefined) return [...lines];
   let repeatedLines: string[] = [firstLine];
   let prevPattern = normalizePattern(firstLine);
 
@@ -108,20 +106,23 @@ export const collapseRepetitiveLines = (content: string): string => {
     const line = lines[i];
     if (line === undefined) continue;
     const pattern = normalizePattern(line);
-
     if (pattern === prevPattern) {
       repeatedLines.push(line);
       continue;
     }
-
     flushRepeated(result, repeatedLines);
     repeatedLines = [line];
     prevPattern = pattern;
   }
 
   flushRepeated(result, repeatedLines);
+  return result;
+};
 
-  return result.join("\n");
+export const collapseRepetitiveLines = (content: string): string => {
+  const lines = content.split("\n");
+  if (lines.length < 10) return content;
+  return joinLines(collapseLines(lines));
 };
 
 export const truncatePreservingEdges = (
@@ -153,66 +154,38 @@ export const compressDiffForPrompt = (
   diff: SanitizedDiff | GitDiff,
   budget: number
 ): CompressionResult => {
-  const normalized = normalizeDiffWhitespace(diff.changes ?? "");
+  const lines = normalizeLines(diff.changes ?? "");
+  if (lines.length === 0) return { content: "", compressed: true };
 
-  if (!normalized) {
-    return {
-      content: `${diff.file} changed (+${diff.additions}/-${diff.deletions})`,
-      compressed: true,
-    };
+  const body = patchBody(lines);
+  const { additions, deletions } = countChanges(body);
+  const aggressive = additions + deletions > DIFF_LOC_AGGRESSIVE_THRESHOLD;
+  if (!aggressive) {
+    const normalized = joinLines(lines);
+    if (normalized.length <= budget) {
+      return { content: normalized, compressed: false };
+    }
   }
 
-  const aggressive = shouldAggressivelyMinimize({ changes: normalized });
-
-  // Tier 0: fits as-is AND not aggressive mode
-  if (!aggressive && normalized.length <= budget) {
-    return { content: normalized, compressed: false };
+  // With only deletions, the removed lines still describe what changed.
+  let selected =
+    aggressive && additions > 0
+      ? prioritizeAdditionLines(body)
+      : keepSignificantLines(body);
+  if (selected.length === 0) selected = lines;
+  let content = joinLines(selected);
+  if (content.length > budget) {
+    const stripped = stripBoilerplateLines(selected);
+    if (stripped.some(line => !line.startsWith("@@"))) {
+      selected = stripped;
+      content = joinLines(selected);
+    }
   }
-
-  // Tier 1: keep only +/- lines and @@ headers
-  const significantLines = keepSignificantDiffLines(normalized);
-  if (!aggressive && significantLines && significantLines.length <= budget) {
-    return { content: significantLines, compressed: true };
+  if (content.length > budget && selected.length >= 10) {
+    content = joinLines(collapseLines(selected));
   }
-
-  // Tier 1.5 (aggressive only): prioritize + lines — additions describe
-  // the new state of the file, which is what the AI needs to summarize.
-  // Deletion lines are redundant context once the file is large.
-  const additionsOnly = aggressive
-    ? prioritizeAdditions(significantLines || normalized)
-    : "";
-  if (aggressive && additionsOnly && additionsOnly.length <= budget) {
-    return { content: additionsOnly, compressed: true };
-  }
-
-  // Tier 2: strip boilerplate (always for aggressive mode, or when still too big)
-  const stripped = stripBoilerplate(
-    additionsOnly || significantLines || normalized
-  );
-  if (stripped && stripped.length <= budget) {
-    return { content: stripped, compressed: true };
-  }
-
-  // Tier 3: collapse repetitive patterns
-  const collapsed = collapseRepetitiveLines(
-    stripped || additionsOnly || significantLines || normalized
-  );
-  if (collapsed && collapsed.length <= budget) {
-    return { content: collapsed, compressed: true };
-  }
-
-  // Tier 4: hard truncate the best we have
-  const best =
-    collapsed || stripped || additionsOnly || significantLines || normalized;
-  if (best) {
-    return {
-      content: truncatePreservingEdges(best, budget),
-      compressed: true,
-    };
-  }
-
   return {
-    content: `${diff.file} changed (+${diff.additions}/-${diff.deletions})`,
+    content: truncatePreservingEdges(content, budget),
     compressed: true,
   };
 };

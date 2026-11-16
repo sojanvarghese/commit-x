@@ -6,6 +6,7 @@ import type { GitService } from "../services/git.js";
 import type { AIService } from "../services/ai.js";
 import type { TimeoutCalculationOptions } from "../utils/timeout.js";
 import type { CommitGroup, CommitOptions, GitDiff } from "../types/common.js";
+import { preGroupDeterministicFiles } from "../services/ai-commit-group.js";
 
 const shouldSkipFile = (diff: GitDiff): boolean => {
   const totalChanges = diff.additions + diff.deletions;
@@ -29,17 +30,16 @@ const logSkippedFile = (diff: GitDiff): void => {
 
 const buildTimeoutOptions = (
   groupFiles: string[],
-  allDiffs: GitDiff[]
+  diffsByFile: ReadonlyMap<string, GitDiff>
 ): Omit<TimeoutCalculationOptions, "operationType"> => {
-  const groupDiffs = allDiffs.filter(diff => groupFiles.includes(diff.file));
-  const totalChanges = groupDiffs.reduce(
-    (sum, diff) => sum + diff.additions + diff.deletions,
-    0
-  );
-  const totalDiffSize = groupDiffs.reduce(
-    (sum, diff) => sum + (diff.changes?.length || 0),
-    0
-  );
+  let totalChanges = 0;
+  let totalDiffSize = 0;
+  for (const file of groupFiles) {
+    const diff = diffsByFile.get(file);
+    if (!diff) continue;
+    totalChanges += diff.additions + diff.deletions;
+    totalDiffSize += diff.changes?.length || 0;
+  }
   return {
     fileCount: groupFiles.length,
     totalChanges,
@@ -78,34 +78,30 @@ const executeGroupCommit = async (
   gitService: GitService,
   group: CommitGroup,
   groupName: string,
-  allDiffs: GitDiff[]
+  diffsByFile: ReadonlyMap<string, GitDiff>
 ): Promise<number> => {
   const commitSpinner = lightSpinner(`Committing ${groupName}...`).start();
-  const timeoutOptions = buildTimeoutOptions(group.files, allDiffs);
+  const timeoutOptions = buildTimeoutOptions(group.files, diffsByFile);
   logTimeoutMetrics(timeoutOptions);
 
-  const stagedFiles: string[] = [];
+  let staged = false;
   try {
     await gitService.stageFiles(group.files, timeoutOptions);
-    stagedFiles.push(...group.files);
+    staged = true;
 
     await gitService.commit(group.message, timeoutOptions);
 
-    const onlyFile = stagedFiles[0];
-    const actualGroupName =
-      stagedFiles.length > 1
-        ? `${stagedFiles.length} files`
-        : basename(onlyFile ?? "file");
-
-    commitSpinner.succeed(`✅ ${actualGroupName}: ${group.message}`);
-    return stagedFiles.length;
+    commitSpinner.succeed(`✅ ${groupName}: ${group.message}`);
+    return group.files.length;
   } catch (error) {
-    try {
-      await gitService.unstageFiles(group.files, timeoutOptions);
-    } catch (rollbackError) {
-      console.error(
-        lightColors.red(`  Failed to restore Git index: ${rollbackError}`)
-      );
+    if (staged) {
+      try {
+        await gitService.unstageFiles(group.files, timeoutOptions);
+      } catch (rollbackError) {
+        console.error(
+          lightColors.red(`  Failed to restore Git index: ${rollbackError}`)
+        );
+      }
     }
     commitSpinner.fail(`Failed to commit ${groupName}`);
     throw error;
@@ -115,7 +111,7 @@ const executeGroupCommit = async (
 const processGroup = async (
   gitService: GitService,
   group: CommitGroup,
-  allDiffs: GitDiff[],
+  diffsByFile: ReadonlyMap<string, GitDiff>,
   dryRun: boolean
 ): Promise<number> => {
   const firstFile = group.files[0];
@@ -126,7 +122,7 @@ const processGroup = async (
 
   return dryRun
     ? previewGroupDryRun(group, groupName)
-    : executeGroupCommit(gitService, group, groupName, allDiffs);
+    : executeGroupCommit(gitService, group, groupName, diffsByFile);
 };
 
 interface CommitPlan {
@@ -167,13 +163,14 @@ const planCommits = async (
       return undefined;
     }
 
-    spinner.message = "Using AI to group related changes...";
+    const plan = preGroupDeterministicFiles(diffs, gitService.root);
+    let groups = plan.autoGroups;
 
-    const aiService = await getAIService();
-    const { groups } = await aiService.generateAggregatedCommits(
-      diffs,
-      options.useCached === undefined ? {} : { useCached: options.useCached }
-    );
+    if (plan.aiDiffs.length > 0) {
+      spinner.message = "Using AI to group related changes...";
+      const aiService = await getAIService();
+      ({ groups } = await aiService.generateAggregatedCommits(plan, options));
+    }
 
     if (groups.length === 0) {
       spinner.fail("AI grouping returned no commit groups");
@@ -181,7 +178,9 @@ const planCommits = async (
     }
 
     spinner.succeed(
-      `AI grouped ${diffs.length} files into ${groups.length} logical commits`
+      plan.aiDiffs.length === 0
+        ? `Grouped ${diffs.length} files into ${groups.length} logical commits`
+        : `AI grouped ${diffs.length} files into ${groups.length} logical commits`
     );
     return { groups, diffs, skippedCount };
   } catch (error) {
@@ -199,12 +198,13 @@ export const commitFilesBatch = async (
   const plan = await planCommits(gitService, getAIService, files, options);
   if (!plan) return 0;
 
+  const diffsByFile = new Map(plan.diffs.map(diff => [diff.file, diff]));
   let processedCount = 0;
   for (const group of plan.groups) {
     processedCount += await processGroup(
       gitService,
       group,
-      plan.diffs,
+      diffsByFile,
       Boolean(options.dryRun)
     );
   }

@@ -15,8 +15,10 @@ import {
 } from "../utils/timeout.js";
 import {
   buildFileDiff,
+  fetchBulkSummaries,
   fetchPatches,
-  needsPatch,
+  indexStatus,
+  isBulkFilePath,
   resolveDiffTarget,
   type DiffTarget,
   type RawGitStatus,
@@ -46,6 +48,10 @@ export class GitService {
   constructor(repositoryPath: string = process.cwd()) {
     this.repositoryPath = resolve(repositoryPath);
     this.git = simpleGit({ baseDir: this.repositoryPath });
+  }
+
+  get root(): string {
+    return this.repositoryPath;
   }
 
   // Failures with no recognisable cause are git failures by construction.
@@ -134,19 +140,31 @@ export class GitService {
       }
     });
 
-    const patches = await fetchPatches(
-      this.git,
-      targets
-        .map(target => target.relativeFile)
-        .filter(relativeFile => needsPatch(relativeFile, status))
-    ).catch(() => undefined);
+    const indexed = indexStatus(status);
+    const patchFiles: string[] = [];
+    const bulkFiles: string[] = [];
+    for (const { relativeFile } of targets) {
+      if (indexed.untracked.has(relativeFile)) continue;
+      if (isBulkFilePath(relativeFile)) bulkFiles.push(relativeFile);
+      else patchFiles.push(relativeFile);
+    }
+    const [patches, summaries] = await Promise.all([
+      fetchPatches(this.git, patchFiles).catch(() => undefined),
+      fetchBulkSummaries(this.git, bulkFiles).catch(() => undefined),
+    ]);
 
     const results = await mapWithConcurrency(
       targets,
       DIFF_COLLECTION_CONCURRENCY,
       async target => {
         try {
-          return await buildFileDiff(this.git, target, status, patches);
+          return await buildFileDiff(
+            this.git,
+            target,
+            indexed,
+            patches,
+            summaries
+          );
         } catch (error) {
           return skip(target.file, error);
         }
@@ -176,7 +194,7 @@ export class GitService {
         buildFileDiff(
           this.git,
           resolveDiffTarget(file, this.repositoryPath),
-          await this.getRawStatus()
+          indexStatus(await this.getRawStatus())
         ),
       file
     );

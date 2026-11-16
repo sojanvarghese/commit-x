@@ -1,3 +1,4 @@
+import { isAbsolute, relative } from "node:path";
 import type { CommitGroup, GitDiff } from "../types/common.js";
 import {
   classifyFile,
@@ -32,9 +33,6 @@ interface ClassifiedDiff {
   classification: Classification;
 }
 
-const classifyAll = (diffs: GitDiff[]): ClassifiedDiff[] =>
-  diffs.map(diff => ({ diff, classification: classifyFile(diff.file) }));
-
 const groupByEcosystem = (
   classified: ClassifiedDiff[],
   category: FileCategory
@@ -52,9 +50,17 @@ const groupByEcosystem = (
 };
 
 export const preGroupDeterministicFiles = (
-  diffs: GitDiff[]
+  diffs: GitDiff[],
+  repositoryPath?: string
 ): PreGroupingResult => {
-  const classified = classifyAll(diffs);
+  const classified = diffs.map(diff => ({
+    diff,
+    classification: classifyFile(
+      repositoryPath && isAbsolute(diff.file)
+        ? relative(repositoryPath, diff.file)
+        : diff.file
+    ),
+  }));
   const autoGroups: CommitGroup[] = [];
   const handled = new Set<string>();
 

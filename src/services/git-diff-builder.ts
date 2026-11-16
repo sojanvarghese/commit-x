@@ -1,3 +1,4 @@
+import { countChanges, patchBody } from "../utils/diff-lines.js";
 import type { SimpleGit } from "simple-git";
 import { lstat, open } from "node:fs/promises";
 import { relative } from "node:path";
@@ -15,10 +16,9 @@ import { DEFAULT_LIMITS } from "../constants/security.js";
 
 export type RawGitStatus = Awaited<ReturnType<SimpleGit["status"]>>;
 
-export interface DiffSummaryFile {
-  file: string;
-  insertions?: number;
-  deletions?: number;
+interface ChangeCounts {
+  additions: number;
+  deletions: number;
 }
 
 export interface DiffTarget {
@@ -39,76 +39,60 @@ const PATCH_ARGS = [
 ];
 const SECTION_HEADER = "diff --git ";
 
-const findFileSummary = (
-  diffSummary: { files: DiffSummaryFile[] },
-  relativeFile: string,
-  validatedFile: string
-): DiffSummaryFile | undefined =>
-  diffSummary.files.find(
-    summary =>
-      summary.file === relativeFile ||
-      summary.file === validatedFile ||
-      summary.file.endsWith(`/${relativeFile}`)
-  );
-
-const renamedFrom = (
-  status: RawGitStatus,
-  relativeFile: string
-): string | undefined =>
-  status.renamed.find(
-    (renamed: { to: string; from: string }) => renamed.to === relativeFile
-  )?.from;
-
-const isRenamedTo = (status: RawGitStatus, relativeFile: string): boolean =>
-  status.renamed.some((renamed: { to: string }) => renamed.to === relativeFile);
-
-const isNewFile = (status: RawGitStatus, relativeFile: string): boolean => {
-  if (status.created.includes(relativeFile)) return true;
-  return status.not_added.includes(relativeFile);
-};
-
-const isBulkFilePath = (relativeFile: string): boolean => {
+export const isBulkFilePath = (relativeFile: string): boolean => {
   const { category } = classifyFile(relativeFile);
   return (
     category === "MINIFIED" ||
     category === "BUILD_ARTIFACT" ||
-    category === "LOCK"
+    category === "LOCK" ||
+    category === "GENERATED"
   );
+};
+
+export interface StatusIndex {
+  untracked: ReadonlySet<string>;
+  created: ReadonlySet<string>;
+  deleted: ReadonlySet<string>;
+  workingDirDeleted: ReadonlySet<string>;
+  renamedFromByTo: ReadonlyMap<string, string>;
+}
+
+export const indexStatus = (status: RawGitStatus): StatusIndex => {
+  const workingDirDeleted = new Set<string>();
+  for (const file of status.files ?? []) {
+    if (file.working_dir === "D") workingDirDeleted.add(file.path);
+  }
+  return {
+    untracked: new Set(status.not_added),
+    created: new Set(status.created),
+    deleted: new Set(status.deleted),
+    workingDirDeleted,
+    renamedFromByTo: new Map(
+      status.renamed.map(rename => [rename.to, rename.from])
+    ),
+  };
 };
 
 const buildDiffMetadata = (
   relativeFile: string,
-  status: RawGitStatus
+  status: StatusIndex
 ): Pick<GitDiff, "isNew" | "isDeleted" | "isRenamed" | "oldPath"> => {
-  const oldPath = renamedFrom(status, relativeFile);
-  const fileStatus = status.files?.find(file => file.path === relativeFile);
+  const oldPath = status.renamedFromByTo.get(relativeFile);
   return {
-    isNew: isNewFile(status, relativeFile),
+    isNew:
+      status.created.has(relativeFile) || status.untracked.has(relativeFile),
     isDeleted:
-      status.deleted.includes(relativeFile) || fileStatus?.working_dir === "D",
-    isRenamed: isRenamedTo(status, relativeFile),
+      status.deleted.has(relativeFile) ||
+      status.workingDirDeleted.has(relativeFile),
+    isRenamed: oldPath !== undefined,
     ...(oldPath === undefined ? {} : { oldPath }),
   };
 };
 
-const buildSummaryDiff = (
-  validatedFile: string,
-  relativeFile: string,
-  status: RawGitStatus,
-  fileSummary: DiffSummaryFile | undefined,
-  changesLabel: string
-): GitDiff => ({
-  file: validatedFile,
-  additions: fileSummary?.insertions ?? 0,
-  deletions: fileSummary?.deletions ?? 0,
-  changes: changesLabel,
-  ...buildDiffMetadata(relativeFile, status),
-});
-
 const emptyDiff = (
   validatedFile: string,
   relativeFile: string,
-  status: RawGitStatus
+  status: StatusIndex
 ): GitDiff => ({
   file: validatedFile,
   additions: 0,
@@ -116,14 +100,6 @@ const emptyDiff = (
   changes: "",
   ...buildDiffMetadata(relativeFile, status),
 });
-
-// Untracked files are read from disk and bulk files only need a summary; the
-// rest need their patch from git.
-export const needsPatch = (
-  relativeFile: string,
-  status: RawGitStatus
-): boolean =>
-  !status.not_added.includes(relativeFile) && !isBulkFilePath(relativeFile);
 
 // Reads the path back out of `diff --git a/<path> b/<path>`. Both sides are
 // the same path, so it is split at the midpoint; headers git had to quote
@@ -162,69 +138,48 @@ export const fetchPatches = async (
   return patches;
 };
 
-const handleBulkFile = async (
+// NUL-delimited numstat preserves filenames and gives exact counts even for
+// large patches. Disabling rename detection keeps one path per record.
+export const fetchBulkSummaries = async (
   git: SimpleGit,
-  validatedFile: string,
-  relativeFile: string,
-  status: RawGitStatus
-): Promise<GitDiff | null> => {
-  try {
-    const diffSummary = await withTimeout(
-      git.diffSummary(["--", relativeFile]),
-      calculateGitTimeout({ diffSize: 0 })
+  relativeFiles: string[]
+): Promise<Map<string, ChangeCounts>> => {
+  const summaries = new Map<string, ChangeCounts>();
+  for (let i = 0; i < relativeFiles.length; i += PATCH_BATCH_SIZE) {
+    const batch = relativeFiles.slice(i, i + PATCH_BATCH_SIZE);
+    const output = await withTimeout(
+      git.raw(["diff", "--no-renames", "--numstat", "-z", "--", ...batch]),
+      calculateGitTimeout({ fileCount: batch.length })
     );
-    const fileSummary = findFileSummary(
-      diffSummary,
-      relativeFile,
-      validatedFile
-    );
-    const additions = fileSummary?.insertions ?? 0;
-    const deletions = fileSummary?.deletions ?? 0;
-
-    const { category } = classifyFile(relativeFile);
-    return buildSummaryDiff(
-      validatedFile,
-      relativeFile,
-      status,
-      fileSummary,
-      category === "LOCK"
-        ? `Lock file updated: +${additions}/-${deletions}`
-        : `Generated file updated: +${additions}/-${deletions}`
-    );
-  } catch {
-    return null;
+    for (const record of output.split("\0")) {
+      if (!record) continue;
+      const firstTab = record.indexOf("\t");
+      const secondTab = record.indexOf("\t", firstTab + 1);
+      // Git reports "-" in both count columns for binary files.
+      const additions = Number(record.slice(0, firstTab)) || 0;
+      const deletions = Number(record.slice(firstTab + 1, secondTab)) || 0;
+      summaries.set(record.slice(secondTab + 1), { additions, deletions });
+    }
   }
-};
-
-const countPatchChanges = (
-  diff: string
-): { additions: number; deletions: number } => {
-  let additions = 0;
-  let deletions = 0;
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) additions++;
-    if (line.startsWith("-") && !line.startsWith("---")) deletions++;
-  }
-  return { additions, deletions };
+  return summaries;
 };
 
 const readUntrackedDiff = async (
-  validatedFile: string,
-  relativeFile: string
+  validatedFile: string
 ): Promise<Pick<GitDiff, "additions" | "deletions" | "changes">> => {
   const fileStats = await lstat(validatedFile);
   if (fileStats.isSymbolicLink()) {
     return {
       additions: 1,
       deletions: 0,
-      changes: `Symlink added: ${relativeFile}`,
+      changes: "Symlink added",
     };
   }
   if (!fileStats.isFile()) {
     return {
       additions: 0,
       deletions: 0,
-      changes: `Non-regular file added: ${relativeFile}`,
+      changes: "Non-regular file added",
     };
   }
   if (fileStats.size > DEFAULT_LIMITS.maxFileSize) {
@@ -244,6 +199,8 @@ const readUntrackedDiff = async (
     );
     const buffer = Buffer.alloc(bytesToRead);
     const { bytesRead } = await handle.read(buffer, 0, bytesToRead, 0);
+    if (bytesRead === 0)
+      return { additions: 0, deletions: 0, changes: "Empty file added" };
     const content = buffer.subarray(0, bytesRead);
     if (content.includes(0)) {
       return {
@@ -255,6 +212,7 @@ const readUntrackedDiff = async (
 
     const text = content.toString("utf8");
     const lines = text.split("\n");
+    if (lines.at(-1) === "") lines.pop();
     const truncated = fileStats.size > bytesRead;
     return {
       additions: lines.length,
@@ -292,11 +250,12 @@ export const resolveDiffTarget = (
 export const buildFileDiff = async (
   git: SimpleGit,
   { file: validatedFile, relativeFile }: DiffTarget,
-  status: RawGitStatus,
-  patches?: ReadonlyMap<string, string>
+  status: StatusIndex,
+  patches?: ReadonlyMap<string, string>,
+  summaries?: ReadonlyMap<string, ChangeCounts>
 ): Promise<GitDiff> => {
-  if (status.not_added.includes(relativeFile)) {
-    const untracked = await readUntrackedDiff(validatedFile, relativeFile);
+  if (status.untracked.has(relativeFile)) {
+    const untracked = await readUntrackedDiff(validatedFile);
     return {
       file: validatedFile,
       ...untracked,
@@ -307,13 +266,25 @@ export const buildFileDiff = async (
   }
 
   if (isBulkFilePath(relativeFile)) {
-    const bulkResult = await handleBulkFile(
-      git,
-      validatedFile,
-      relativeFile,
-      status
-    );
-    if (bulkResult) return bulkResult;
+    try {
+      const counts =
+        summaries ?? (await fetchBulkSummaries(git, [relativeFile]));
+      const { additions, deletions } = counts.get(relativeFile) ?? {
+        additions: 0,
+        deletions: 0,
+      };
+      const label =
+        classifyFile(relativeFile).category === "LOCK" ? "Lock" : "Generated";
+      return {
+        file: validatedFile,
+        additions,
+        deletions,
+        changes: `${label} file updated: +${additions}/-${deletions}`,
+        ...buildDiffMetadata(relativeFile, status),
+      };
+    } catch {
+      // Fall back to the patch if Git could not produce a summary.
+    }
   }
 
   try {
@@ -335,7 +306,7 @@ export const buildFileDiff = async (
       );
     }
 
-    const changeCounts = countPatchChanges(diff);
+    const changeCounts = countChanges(patchBody(diff.split("\n")));
     return {
       file: validatedFile,
       additions: changeCounts.additions,

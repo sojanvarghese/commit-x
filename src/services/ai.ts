@@ -1,4 +1,10 @@
-import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+import {
+  BlockedReason,
+  FinishReason,
+  GoogleGenAI,
+  ThinkingLevel,
+  type GenerateContentResponse,
+} from "@google/genai";
 import type {
   AggregatedCommitResponse,
   CommitGroup,
@@ -36,7 +42,10 @@ import {
   parseAggregatedResponse,
   type ParseResult,
 } from "./ai-prompt.js";
-import { preGroupDeterministicFiles } from "./ai-commit-group.js";
+import {
+  preGroupDeterministicFiles,
+  type PreGroupingResult,
+} from "./ai-commit-group.js";
 
 interface GenerateOptions {
   useCached?: boolean;
@@ -56,6 +65,58 @@ const MAX_DROPPED_FILE_RETRIES = 1;
 const AI_CHUNK_MAX_FILES = 30;
 const AI_CHUNK_CONTENT_BUDGET = 50_000;
 const AI_CHUNK_CONCURRENCY = 2;
+// Gemini 3 thinking tokens count against this budget. LOW reasoning needs
+// headroom so a 30-file JSON response is not cut off at MAX_TOKENS.
+const AI_MAX_OUTPUT_TOKENS = 8192;
+
+const BLOCKED_FINISH_REASONS = new Set<FinishReason>([
+  FinishReason.SAFETY,
+  FinishReason.RECITATION,
+  FinishReason.BLOCKLIST,
+  FinishReason.PROHIBITED_CONTENT,
+  FinishReason.SPII,
+]);
+
+const assertUsableResponse = (result: GenerateContentResponse): void => {
+  const blockReason = result.promptFeedback?.blockReason;
+  if (blockReason && blockReason !== BlockedReason.BLOCKED_REASON_UNSPECIFIED) {
+    throw new SecureError(
+      `Gemini blocked the prompt (${blockReason})`,
+      ErrorType.VALIDATION_ERROR,
+      { operation: "generateAggregatedCommits" },
+      false
+    );
+  }
+  const finishReason = result.candidates?.[0]?.finishReason;
+  if (
+    finishReason === undefined ||
+    finishReason === FinishReason.STOP ||
+    finishReason === FinishReason.FINISH_REASON_UNSPECIFIED
+  ) {
+    return;
+  }
+
+  if (BLOCKED_FINISH_REASONS.has(finishReason)) {
+    throw new SecureError(
+      `Gemini blocked the response (${finishReason})`,
+      ErrorType.VALIDATION_ERROR,
+      { operation: "generateAggregatedCommits" },
+      false
+    );
+  }
+
+  if (
+    finishReason === FinishReason.MAX_TOKENS ||
+    finishReason === FinishReason.MALFORMED_RESPONSE
+  ) {
+    throw new SecureError(
+      `Gemini stopped before a complete response (${finishReason})`,
+      ErrorType.AI_SERVICE_ERROR,
+      { operation: "generateAggregatedCommits" },
+      true
+    );
+  }
+};
 
 export class AIService {
   private readonly genAI: GoogleGenAI;
@@ -74,14 +135,21 @@ export class AIService {
       );
     }
 
-    this.genAI = new GoogleGenAI({ apiKey });
+    this.genAI = new GoogleGenAI({
+      apiKey,
+      // Commit-X owns retries and model fallback. One SDK attempt keeps those
+      // counts deterministic.
+      httpOptions: { retryOptions: { attempts: 1 } },
+    });
   }
 
   generateAggregatedCommits = async (
-    diffs: GitDiff[],
+    input: GitDiff[] | PreGroupingResult,
     options: GenerateOptions = {}
   ): Promise<AggregatedCommitResponse> => {
-    const { aiDiffs, autoGroups } = preGroupDeterministicFiles(diffs);
+    const { aiDiffs, autoGroups } = Array.isArray(input)
+      ? preGroupDeterministicFiles(input)
+      : input;
 
     if (aiDiffs.length === 0) {
       return { groups: autoGroups };
@@ -280,15 +348,17 @@ export class AIService {
                   request.approvedDiffs.length
                 ),
                 temperature: 0.1,
-                maxOutputTokens: 4096,
+                maxOutputTokens: AI_MAX_OUTPUT_TOKENS,
                 thinkingConfig: {
-                  thinkingLevel: ThinkingLevel.MINIMAL,
+                  thinkingLevel: ThinkingLevel.LOW,
                   includeThoughts: false,
                 },
               },
             }),
           request.timeoutMs
         );
+
+        assertUsableResponse(result);
 
         const parseResult = parseAggregatedResponse(
           result.text ?? "",
@@ -323,7 +393,10 @@ export class AIService {
     }
 
     if (seen.size !== expected.size) return null;
-    return { groups: structuredClone(groups), unusedDiffs: [] };
+    return {
+      groups: groups.map(group => ({ ...group, files: [...group.files] })),
+      unusedDiffs: [],
+    };
   };
 }
 
