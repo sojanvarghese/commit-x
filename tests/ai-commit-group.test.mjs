@@ -86,3 +86,17 @@ test("orphaned lock without a manifest still forms a deterministic group", async
   assert.equal(autoGroups.length, 1);
   assert.deepEqual(autoGroups[0].files, ["yarn.lock"]);
 });
+
+test("only directories inside the repository affect build artifact grouping", async () => {
+  const { preGroupDeterministicFiles } = await loadGroup();
+  for (const root of ["/workspace/build/project", "/workspace/src/project"]) {
+    const source = diff(`${root}/app.ts`);
+    const artifact = diff(`${root}/dist/app.js`);
+    const { aiDiffs, autoGroups } = preGroupDeterministicFiles(
+      [source, artifact],
+      root
+    );
+    assert.deepEqual(aiDiffs, [source]);
+    assert.deepEqual(autoGroups[0].files, [artifact.file]);
+  }
+});

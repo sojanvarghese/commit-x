@@ -61,7 +61,8 @@ test("Gemini requests use structured JSON, system instructions, and cancellation
 
   assert.equal(request.model, "gemini-3.5-flash-lite");
   assert.equal(request.config.responseMimeType, "application/json");
-  assert.equal(request.config.thinkingConfig.thinkingLevel, "MINIMAL");
+  assert.equal(request.config.maxOutputTokens, 8192);
+  assert.equal(request.config.thinkingConfig.thinkingLevel, "LOW");
   assert.ok(request.config.abortSignal instanceof AbortSignal);
   assert.match(request.config.systemInstruction, /untrusted diff data/i);
   assert.equal(request.contents.includes("src/app.ts"), false);
@@ -70,6 +71,75 @@ test("Gemini requests use structured JSON, system instructions, and cancellation
       .items.enum,
     ["F1"]
   );
+});
+
+test("a safety block is not retried or sent to the fallback model", async () => {
+  process.env.GEMINI_API_KEY = TEST_API_KEY;
+  const module = await loadModule();
+  const AIService = await module.AIService();
+  const service = new AIService();
+  stubCache(service);
+
+  let calls = 0;
+  service.genAI = {
+    models: {
+      generateContent: async () => {
+        calls += 1;
+        return { text: "", candidates: [{ finishReason: "SAFETY" }] };
+      },
+    },
+  };
+
+  await assert.rejects(
+    service.generateAggregatedCommits([makeDiff("src/app.ts")]),
+    /blocked the response \(SAFETY\)/i
+  );
+  assert.equal(calls, 1);
+});
+
+test("a blocked prompt without candidates stops after one request", async () => {
+  process.env.GEMINI_API_KEY = TEST_API_KEY;
+  const { AIService } = await loadModule();
+  const Service = await AIService();
+  const service = new Service();
+  let calls = 0;
+  service.genAI = {
+    models: {
+      generateContent: async () => {
+        calls++;
+        return { promptFeedback: { blockReason: "SAFETY" } };
+      },
+    },
+  };
+  await assert.rejects(
+    service.generateAggregatedCommits([makeDiff("src/app.ts")]),
+    /blocked the prompt \(SAFETY\)/i
+  );
+  assert.equal(calls, 1);
+});
+
+test("truncated or malformed model output names the finish reason", async () => {
+  process.env.GEMINI_API_KEY = TEST_API_KEY;
+  const module = await loadModule();
+  const AIService = await module.AIService();
+
+  for (const finishReason of ["MAX_TOKENS", "MALFORMED_RESPONSE"]) {
+    const service = new AIService();
+    stubCache(service);
+    service.genAI = {
+      models: {
+        generateContent: async () => ({
+          text: "",
+          candidates: [{ finishReason }],
+        }),
+      },
+    };
+
+    await assert.rejects(
+      service.generateAggregatedCommits([makeDiff("src/app.ts")]),
+      new RegExp(`complete response \\(${finishReason}\\)`)
+    );
+  }
 });
 
 test("diff content cannot close the untrusted prompt boundary", async () => {

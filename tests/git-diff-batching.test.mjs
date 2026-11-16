@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -199,6 +199,40 @@ test("batched diffs match per-file diffs in a real repository", async () => {
       assert.match(diff.changes, new RegExp(`^\\+changed in ${name}$`, "m"));
       assert.equal(diff.changes.match(/^\+changed in /gm).length, 1, name);
     }
+  } finally {
+    await rm(repositoryPath, { recursive: true, force: true });
+  }
+});
+
+test("bulk stats preserve large counts, Unicode paths, and distinct lockfiles", async () => {
+  const GitService = await loadGitService();
+  const repositoryPath = await realpath(
+    await mkdtemp(path.join(os.tmpdir(), "commitx-stat-"))
+  );
+  const git = (...args) => execFileAsync("git", args, { cwd: repositoryPath });
+  const names = ["yarn.lock", "nested/yarn.lock", "café.generated.ts"];
+  try {
+    await git("init", "-q");
+    await mkdir(path.join(repositoryPath, "nested"));
+    for (const name of names)
+      await writeFile(path.join(repositoryPath, name), "seed\n");
+    await git("add", ".");
+    for (const [i, name] of names.entries()) {
+      await writeFile(
+        path.join(repositoryPath, name),
+        "added\n".repeat(5000 + i)
+      );
+    }
+    const service = new GitService(repositoryPath);
+    const diffs = await service.getFileDiffs(names);
+    assert.deepEqual(
+      diffs.map(d => [d.additions, d.deletions]),
+      [
+        [5000, 1],
+        [5001, 1],
+        [5002, 1],
+      ]
+    );
   } finally {
     await rm(repositoryPath, { recursive: true, force: true });
   }

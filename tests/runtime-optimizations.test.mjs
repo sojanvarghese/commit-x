@@ -91,6 +91,10 @@ test("AI cache entries round-trip from disk with owner-only permissions", async 
     assert.equal(cacheDirStats.mode & 0o777, 0o700);
     assert.equal(cacheFileStats.mode & 0o777, 0o600);
     assert.deepEqual(await secondService.aiCache.get(key), suggestions);
+
+    await rm(path.dirname(diskEntryPath), { recursive: true });
+    await cache.set(key, suggestions);
+    assert.deepEqual(await cache.get(key), suggestions);
   } finally {
     process.env.HOME = originalHome;
     await rm(homeDir, { recursive: true, force: true });
@@ -443,6 +447,34 @@ test("hard truncation keeps both early and late diff context", async () => {
   assert.ok(compressed.content.includes("omitted"));
 });
 
+test("bulk and generated files share one diff summary call", async () => {
+  const files = ["yarn.lock", "dist/app.min.js", "src/types.generated.ts"];
+  const { service, status } = await createGitServiceForDiffTests(files);
+  const summaryCalls = [];
+
+  service.git = {
+    status: async () => status,
+    diff: async () => {
+      throw new Error("full diff should not run for bulk files");
+    },
+    raw: async args => {
+      summaryCalls.push(args);
+      return files.map(file => `2\t1\t${file}\0`).join("");
+    },
+  };
+
+  const result = await service.getFileDiffs(inRepo(files));
+
+  assert.equal(summaryCalls.length, 1);
+  assert.equal(summaryCalls[0].includes("yarn.lock"), true);
+  assert.equal(summaryCalls[0].includes("src/types.generated.ts"), true);
+  assert.equal(result.length, 3);
+  assert.equal(
+    result.every(diff => diff.changes.toLowerCase().includes("updated")),
+    true
+  );
+});
+
 test("generated files get summary-only diffs in git layer", async () => {
   const files = ["dist/bundle.min.js"];
   const { service, status } = await createGitServiceForDiffTests(files);
@@ -454,9 +486,7 @@ test("generated files get summary-only diffs in git layer", async () => {
       fullDiffCalled = true;
       return "full diff content";
     },
-    diffSummary: async () => ({
-      files: [{ file: "dist/bundle.min.js", insertions: 500, deletions: 200 }],
-    }),
+    raw: async () => "500\t200\tdist/bundle.min.js\0",
   };
 
   const result = await service.getFileDiff("/repo/dist/bundle.min.js");

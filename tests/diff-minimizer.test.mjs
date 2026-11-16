@@ -158,3 +158,29 @@ test("compressDiffForPrompt prioritizes additions once aggressive threshold hit"
     "compressed output should drop deletion noise to make room for additions"
   );
 });
+
+test("changed lines beginning with repeated signs survive compression", async () => {
+  const { countDiffLines, keepSignificantDiffLines } = await loadMinimizer();
+  const diff = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n---counter;\n+++counter;";
+  assert.equal(countDiffLines(diff), 2);
+  assert.equal(
+    keepSignificantDiffLines(diff),
+    "@@ -1 +1 @@\n---counter;\n+++counter;"
+  );
+});
+
+test("deletion-only patches keep removed code and empty patches keep paths private", async () => {
+  const { compressDiffForPrompt } = await loadMinimizer();
+  const changes = "@@ -1,300 +0,0 @@\n" + "-oldBehavior();\n".repeat(300);
+  const diff = {
+    file: "internal/secret-name.ts",
+    additions: 0,
+    deletions: 300,
+    changes,
+  };
+  assert.match(compressDiffForPrompt(diff, 100).content, /oldBehavior/);
+  assert.equal(
+    compressDiffForPrompt({ ...diff, changes: "" }, 100).content,
+    ""
+  );
+});

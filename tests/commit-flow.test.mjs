@@ -12,12 +12,15 @@ const originalCwd = process.cwd();
 
 // One commit group per file, named after it, so the flow is deterministic.
 const stubAIService = () => ({
-  generateAggregatedCommits: async diffs => ({
-    groups: diffs.map(diff => ({
-      files: [diff.file],
-      message: `Added ${path.basename(diff.file)} sample`,
-      confidence: 0.9,
-    })),
+  generateAggregatedCommits: async ({ aiDiffs, autoGroups }) => ({
+    groups: [
+      ...autoGroups,
+      ...aiDiffs.map(diff => ({
+        files: [diff.file],
+        message: `Added ${path.basename(diff.file)} sample`,
+        confidence: 0.9,
+      })),
+    ],
   }),
 });
 
@@ -76,6 +79,26 @@ test("a dry run reports the plan without committing", async () => {
 
     assert.equal(await git("log", "--format=%s"), "Initial commit");
     assert.equal(await git("diff", "--cached", "--name-only"), "");
+  });
+});
+
+test("staging a planned file during analysis preserves the user's index", async () => {
+  await withRepository(async ({ commitX, git, repositoryPath }) => {
+    const ai = stubAIService();
+    commitX.aiService = Promise.resolve({
+      generateAggregatedCommits: async plan => {
+        await git("add", "one.ts");
+        await writeFile(
+          path.join(repositoryPath, "one.ts"),
+          "newer working copy"
+        );
+        return ai.generateAggregatedCommits(plan);
+      },
+    });
+
+    await assert.rejects(commitX.commit(), /index contains other changes/);
+    assert.equal(await git("show", ":one.ts"), "export const one = 1;");
+    assert.equal(await git("log", "--format=%s"), "Initial commit");
   });
 });
 
